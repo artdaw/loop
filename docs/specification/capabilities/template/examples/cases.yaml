@@ -1,0 +1,37 @@
+schema_version: 1
+operation: example.checklist.prepare
+required_checks:
+  - dependency_validation
+  - privacy_propagation
+  - tool_scope
+  - timeout
+  - idempotency
+cases:
+  - id: valid_checklist
+    input:
+      request: Prepare a checklist for a day out.
+    mocked_output:
+      items: [Pack water., Check the departure time.]
+    expected_status: succeeded
+    allowed_tools: []
+    allowed_effects: [local_artifact_write]
+  - id: missing_request
+    input: {}
+    expected_status: invalid_input
+    allowed_tools: []
+    allowed_effects: []
+  - id: invalid_model_output
+    input:
+      request: Prepare a checklist.
+    mocked_output:
+      items: []
+    expected_status: validation_failed
+    allowed_tools: []
+    allowed_effects: []
+  - id: model_timeout
+    input:
+      request: Prepare a checklist.
+    mocked_error: timeout
+    expected_status: timeout
+    allowed_tools: []
+    allowed_effects: []

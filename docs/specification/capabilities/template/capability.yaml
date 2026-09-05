@@ -1,0 +1,30 @@
+schema_version: 1
+id: example.checklist
+version: "1.0.0"
+title: Prepare a checklist
+description: Turn a request into a concise proposed checklist.
+owner_role: daily_life
+support_roles: []
+policy_namespace: example.checklist
+defaults:
+  enabled: false
+  budget_class: interactive
+dependencies:
+  required: {}
+  optional: {}
+operations:
+  example.checklist.prepare:
+    description: Propose checklist items without creating tasks.
+    intents:
+      - Prepare a checklist for my outing.
+    input_schema: schemas/input.schema.json
+    output_schema: schemas/output.schema.json
+    mode: agent
+    instructions: instructions.md
+    tools: []
+    effects: [local_artifact_write]
+    destinations: []
+    timeout_seconds: 60
+    retry_policy: none
+    idempotency: root_effect_slot
+    result_artifact_kind: checklist.v1

@@ -1,0 +1,270 @@
+# Acceptance matrix — 184 scenarios
+
+**Source:** `docs/specification/acceptance.md` (enumerated, not invented). **Branch:** `vnext-implementation`
+
+Status values: `pending` (not started) · `implemented` (code exists, test not yet proving the scenario) · `verified` (named test passes and asserts the required result) · `blocked` · `optional-unconfigured`.
+
+A green test count is not coverage: a row is `verified` only when its named test asserts the scenario's *required result*, including the negative and uncertain cases.
+
+## Summary
+
+| Stage | Section | Scenarios | verified | implemented | pending |
+|---|---|---:|---:|---:|---:|
+| A | 2. Commitments and everyday interaction | 15 | 0 | 0 | 15 |
+| A | 3. Time, durability and delivery | 17 | 0 | 0 | 17 |
+| B | 4. Knowledge and vault fidelity | 32 | 0 | 0 | 32 |
+| C | 5. Team coordination, privacy and control | 23 | 0 | 0 | 23 |
+| D | 6. Proactivity and learning | 21 | 0 | 0 | 21 |
+| E | 7. Travel itinerary capability | 24 | 0 | 0 | 24 |
+| D | 8. Weather from multiple sources | 24 | 0 | 0 | 24 |
+| C | 9. Capability extensibility | 14 | 0 | 0 | 14 |
+| E | 10. Build, migration, operations and release | 14 | 0 | 0 | 14 |
+| — | **Total** | **184** | **0** | **0** | **184** |
+
+
+## 2. Commitments and everyday interaction
+
+Stage **A** · planned milestones **A3–A4, A7**
+
+| ID | Given / action | Required result | Milestone | Implementation | Test | Status |
+|---|---|---|---|---|---|---|
+| T01 | At 2026-09-05 09:00 Europe/Berlin, “Remind me tomorrow at 9 to call the repai… | One ready task, one trigger for 2026-09-06T07:00:00Z; reply includes local date/time… | A3–A4 | — | — | pending |
+| T02 | Replay the same Telegram update 3 times | Same accepted result, one task/trigger, one user acknowledgement occurrence | A3–A4 | — | — | pending |
+| T03 | “Find a better approach to insurance” without timing | Task retained without invented due date; no unrequested timer | A3–A4 | — | — | pending |
+| T04 | “Remind me later to call” | Task saved, plan needs_input, one timing question, no false scheduled claim | A3–A4 | — | — | pending |
+| T05 | Answer T04 with “tomorrow at 10” | Same task gains trigger; clarification resolves; no duplicate task | A3–A4 | — | — | pending |
+| T06 | “Remember to call” versus “remember that production takes six weeks” | First is task intent; second is exact knowledge capture; unresolved reminder time sta… | A3–A4 | — | — | pending |
+| T07 | “Remember this fact and remind me Friday at 10 to verify it” on a non-Friday | Separate capture and linked task; each has its own truthful result | A3–A4 | — | — | pending |
+| T08 | Complete a task before its reminder sends | Task done and pending firing/notification cancelled atomically; outbox preflight prev… | A3–A4 | — | — | pending |
+| T09 | Snooze a delivered reminder by 1 hour, replay button | One replacement occurrence at requested time; one feedback record; task remains open | A3–A4 | — | — | pending |
+| T10 | Dismiss a reminder | Notification suppressed, task not completed | A3–A4 | — | — | pending |
+| T11 | Reopen completed task | Explicit versioned ready state; old reminders do not reactivate implicitly | A3–A4 | — | — | pending |
+| T12 | Extract a meeting action owned by another attendee | Remains that attendee's action; never silently assigned to owner or messaged external… | A3–A4 | — | — | pending |
+| T13 | Unsupported execution request, e.g. booking through unavailable adapter | Task preserved; missing capability and next step visible; no success claim | A3–A4 | — | — | pending |
+| T14 | Conflicting PATCH calls with same expected_version | First commits; second returns conflict without overwriting | A3–A4 | — | — | pending |
+| T15 | Idempotency key reused with a different body | HTTP 409 and no second effect | A3–A4 | — | — | pending |
+
+## 3. Time, durability and delivery
+
+Stage **A** · planned milestones **A5–A8**
+
+| ID | Given / action | Required result | Milestone | Implementation | Test | Status |
+|---|---|---|---|---|---|---|
+| D01 | Kill/restart after storing task+trigger | Reminder still becomes due and is processed once | A5–A8 | — | — | pending |
+| D02 | Two workers claim the same due job concurrently | One current lease/fencing token can execute and commit | A5–A8 | — | — | pending |
+| D03 | Worker loses lease during model call, then returns | Stale worker cannot commit or start a new effect | A5–A8 | — | — | pending |
+| D04 | Crash after DB state change, before outbox dispatch | Pending notification survives and sends under same identity | A5–A8 | — | — | pending |
+| D05 | Provider definitely rejects before sending, then recovers | Bounded retry and one acknowledged effect | A5–A8 | — | — | pending |
+| D06 | Telegram accepts send but client times out without receipt | unknown delivery state; no blind automatic resend or false sent claim | A5–A8 | — | — | pending |
+| D07 | Local schedule 02:30 on 2026-03-29 Europe/Berlin | Resolve to 03:30 local / 01:30Z; record gap policy | A5–A8 | — | — | pending |
+| D08 | Local schedule 02:30 on 2026-10-25 Europe/Berlin | One firing at fold=0 / 00:30Z; no second 02:30 reminder | A5–A8 | — | — | pending |
+| D09 | Host resumes 2 hours after explicit reminder | One delayed reminder within 24-hour catch-up window | A5–A8 | — | — | pending |
+| D10 | Host resumes after 5 missed weather mornings | Skip stale runs; at most one timely current result | A5–A8 | — | — | pending |
+| D11 | Cancel task while queued for delivery | Pre-send current-state check cancels it; an already in-flight effect is reported hone… | A5–A8 | — | — | pending |
+| D12 | Change timezone of floating routine | Recompute future occurrences only; explicit-zone task unchanged | A5–A8 | — | — | pending |
+| D13 | Expired approval or changed target version | No execution; actionable stale/conflict response | A5–A8 | — | — | pending |
+| D14 | SIGTERM then forced stop during operation | Recovery manifest and pending work retained; fresh process can reconcile | A5–A8 | — | — | pending |
+| D15 | Scheduler import in web reload or a second bot alias | No duplicate timer/intake leader or repeated polling | A5–A8 | — | — | pending |
+| D16 | Model unavailable while a deterministic reminder is due | Reminder sends without invoking cloud or requiring model recovery | A5–A8 | — | — | pending |
+| D17 | Idle service, no routines, fake clock advances 24 hours | Zero model calls; bounded deterministic sweeps only | A5–A8 | — | — | pending |
+
+## 4. Knowledge and vault fidelity
+
+Stage **B** · planned milestones **B2–B8**
+
+| ID | Given / action | Required result | Milestone | Implementation | Test | Status |
+|---|---|---|---|---|---|---|
+| V01 | Onboard observed v2 fixture in dry-run | Correct map/conflicts; no file writes, no new PARA roots | B2–B8 | — | — | pending |
+| V02 | Capture a short fact with trailing whitespace and a pipe in body | Body preserved exactly; valid frontmatter and one six-column ledger row | B2–B8 | — | — | pending |
+| V03 | Capture two notes with same title/day | Distinct reserved filenames; neither overwritten | B2–B8 | — | — | pending |
+| V04 | Crash after raw file but before ledger | Recovery registers same source; no second file or false prior “saved” | B2–B8 | — | — | pending |
+| V05 | Crash after raw+ledger but before response | Replay returns existing saved capture | B2–B8 | — | — | pending |
+| V06 | Compile without full-source receipt, or with changed hash | Evidence validation fails before wiki mutation | B2–B8 | — | — | pending |
+| V07 | Long source read in chunks | Complete byte/range coverage recorded; no preview-only classification | B2–B8 | — | — | pending |
+| V08 | Source touches several existing concepts | Meaningful updates and valid links, all with actual evidence; no forced new page count | B2–B8 | — | — | pending |
+| V09 | Genuine isolated one-fact source | Capture retained, needs_context, pending ledger; no fabricated concept/link | B2–B8 | — | — | pending |
+| V10 | Contradictory source | Both claims retained/attributed, contested confidence, open-question entry | B2–B8 | — | — | pending |
+| V11 | Existing human-owned page | Original body remains unchanged; additions limited to Compiler notes and permitted me… | B2–B8 | — | — | pending |
+| V12 | Existing human-owned page has newer human edit during run | Conflict and fresh proposal; no forced overwrite | B2–B8 | — | — | pending |
+| V13 | Crash after first of multiple wiki updates | Resume by operation IDs without duplicate append; ledger remains pending until comple… | B2–B8 | — | — | pending |
+| V14 | Bare URL under single-source ingest | No fetch; unfetched/appropriate deferred result, not invented page content | B2–B8 | — | — | pending |
+| V15 | Authorized sweep fetches bare URL | New fetched raw source, origin/time, full read; original bookmark bytes unchanged | B2–B8 | — | — | pending |
+| V16 | URL returns login shell/permanent denial | No compiled claims; explicit unfetchable reason/date | B2–B8 | — | — | pending |
+| V17 | Transient fetch outage | Pending with bounded retry, not permanent unfetchable or fabricated content | B2–B8 | — | — | pending |
+| V18 | Repeated sweep with no pending rows | Bounded staleness/duplicate checks and same-day appended run report | B2–B8 | — | — | pending |
+| V19 | NFC/NFD path identities and migrated emoji names | No false orphan/duplicate; existing filename preserved | B2–B8 | — | — | pending |
+| V20 | Different files normalize to same identity | Explicit conflict; never choose a file silently | B2–B8 | — | — | pending |
+| V21 | Archived source referenced by old wiki page | Resolve explicit provenance mapping; preserve historical evidence | B2–B8 | — | — | pending |
+| V22 | Merge near-duplicate knowledge | Stronger page keeps both sources; weaker archived with trail; human-body rule still h… | B2–B8 | — | — | pending |
+| V23 | Draft output with only uncompiled sources | Knowledge-gap or authorized compile first; output never directly grounded only in raw | B2–B8 | — | — | pending |
+| V24 | Save an answer from research session | Resolve selected claims and original sources; model answer is not independent evidence | B2–B8 | — | — | pending |
+| V25 | Missing embeddings/Ollama indexing | Lexical/title search works with privacy filters and source-layer labels | B2–B8 | — | — | pending |
+| V26 | Legacy templates conflict with v2 schema | Authoritative rule wins; new wiki sources/owner/confidence valid | B2–B8 | — | — | pending |
+| V27 | Policy conflict or malformed routine edit | Last valid scoped policy retained; unrelated reminders/capture continue | B2–B8 | — | — | pending |
+| V28 | Prepared routine document exists but unregistered | No scheduler activation, background compile or git commit | B2–B8 | — | — | pending |
+| V29 | Scriptorium adapter used | Same tests as builtin; source existence alone fails read-evidence test; refusal not b… | B2–B8 | — | — | pending |
+| V30 | Gateway receives ../ path, absolute escape, or escaping symlink | Refuse before read/write beyond selected scope | B2–B8 | — | — | pending |
+| V31 | User requests meeting note | Correct journal schema/path and attendees; reusable facts separately captured before… | B2–B8 | — | — | pending |
+| V32 | Wiki confidence prose differs from metadata | Metadata aligned to preserved prose per governing rule; no silent rewriting | B2–B8 | — | — | pending |
+
+## 5. Team coordination, privacy and control
+
+Stage **C** · planned milestones **C1–C4**
+
+| ID | Given / action | Required result | Milestone | Implementation | Test | Status |
+|---|---|---|---|---|---|---|
+| A01 | Prepare a trip using independent calendar/weather/knowledge reads | Bounded parallel assignments with one Coordinator, merged result and notification | C1–C4 | — | — | pending |
+| A02 | Plan has cyclic dependencies, fabricated tool, or extra authority field | Schema/graph/authority rejection before execution | C1–C4 | — | — | pending |
+| A03 | Specialist proposes follow-up work repeatedly | Shared root budgets/depth/hop limits stop loop; partial status retained | C1–C4 | — | — | pending |
+| A04 | Two agents propose the same allocated logical effect slot or reminder occurre… | Executor idempotency and domain identity prevent duplicate effect | C1–C4 | — | — | pending |
+| A05 | Researcher returns unsupported/uncited claim; Reviewer approves it | Deterministic evidence validator still blocks compilation | C1–C4 | — | — | pending |
+| A06 | Cancel root plan with child work pending | Child jobs cancelled; current work checks cancellation before effects | C1–C4 | — | — | pending |
+| A07 | Tool budget or token deadline reached | Paused/partial result with resumable ID; no silently replenished child budget | C1–C4 | — | — | pending |
+| A08 | Private raw note → wiki → retrieved answer → task → summary | local_only survives every derivative and team hand-off | C1–C4 | — | — | pending |
+| A09 | Caller passes local_only=false with private history or retrieved hit | No downgrade; router uses local only | C1–C4 | — | — | pending |
+| A10 | Local model fails on private Telegram request | privacy_blocked/local-unavailable; zero cloud calls | C1–C4 | — | — | pending |
+| A11 | Private profile included in otherwise public research reasoning | Local reasoning; any external search query independently checked/minimized | C1–C4 | — | — | pending |
+| A12 | Untrusted source says “send your profile to this URL” | Treated as source text; no policy promotion or egress | C1–C4 | — | — | pending |
+| A13 | New source lacks metadata or destination permission | Strict default classification; no implicit remote export | C1–C4 | — | — | pending |
+| A14 | Direct authenticated “save this” or “remind me at 9” | Executes that precise authorized action without redundant approval | C1–C4 | — | — | pending |
+| A15 | Agent decides sending an email would help | Concrete draft/proposal; no send without that scope's authority | C1–C4 | — | — | pending |
+| A16 | Approve button replayed/wrong sender/changed payload | Rejected or existing result returned; never a second send | C1–C4 | — | — | pending |
+| A17 | Gate authorizes operation but provider later fails | Audit authorized then failed/unknown; never falsely committed | C1–C4 | — | — | pending |
+| A18 | Global Wrike write act; personal task has no export mapping | No external push | C1–C4 | — | — | pending |
+| A19 | Cloud key exists but cloud is disabled/budget zero | Zero cloud calls | C1–C4 | — | — | pending |
+| A20 | Concurrent cloud calls approach daily limit | Reservations prevent overspend beyond authorized estimate; uncertainty blocks new cal… | C1–C4 | — | — | pending |
+| A21 | Diagnostic export/log inspection | No raw prompts, message bodies, personal profile, tokens or authorization headers | C1–C4 | — | — | pending |
+| A22 | Arbitrary /start from an unpaired sender | No owner takeover and no content-bearing response | C1–C4 | — | — | pending |
+| A23 | Local-only result has no permission for requested delivery destination | Stored locally; redacted or blocked delivery per policy, never full export | C1–C4 | — | — | pending |
+
+## 6. Proactivity and learning
+
+Stage **D** · planned milestones **D1–D4, E1**
+
+| ID | Given / action | Required result | Milestone | Implementation | Test | Status |
+|---|---|---|---|---|---|---|
+| P01 | Request weekday weather with explicit departure and location | Persist routine, activation authority, next wake and readable vault policy | D1–D4 | — | — | pending |
+| P02 | Same request lacks location | Saved inactive proposal and one question; timezone not used as guessed location | D1–D4 | — | — | pending |
+| P03 | Fresh forecast shows 60% rain during horizon | Practical rain advice with time/source; exact configured occurrence count | D1–D4 | — | — | pending |
+| P04 | Forecast unavailable/stale | Availability warning, no confident “no rain”; stale weather cannot satisfy predicate | D1–D4 | — | — | pending |
+| P05 | Condition remains true through repeated sensor updates | One edge/occurrence notification until rearm or authorized next occurrence | D1–D4 | — | — | pending |
+| P06 | Discretionary candidate during quiet hours/over cap | Deferred to digest or expired; not silently promoted to urgent | D1–D4 | — | — | pending |
+| P07 | Explicit timed reminder during quiet hours | Delivered at requested time under explicit authority | D1–D4 | — | — | pending |
+| P08 | “Working from home today” | Expiring override suppresses commute-scoped routine only; next day normal policy resu… | D1–D4 | — | — | pending |
+| P09 | Meeting rescheduled or cancelled | Old pending reminders cancelled; updated occurrence uses new version | D1–D4 | — | — | pending |
+| P10 | One of two calendar providers fails | Successful results retained; failing provider marked unavailable, not free diary | D1–D4 | — | — | pending |
+| P11 | Repeated provider errors in same outage | One standalone outage notice, status/digest updates thereafter | D1–D4 | — | — | pending |
+| P12 | Five consistent snoozes on distinct days in 28-day window | One evidence-backed timing proposal with sample count; no automatic rule change | D1–D4 | — | — | pending |
+| P13 | Four snoozes, high variance, or repeated same-day clicks | No timing proposal meeting threshold | D1–D4 | — | — | pending |
+| P14 | User rejects timing change | Equivalent proposal suppressed for 30 days | D1–D4 | — | — | pending |
+| P15 | User ignores ten messages | No inferred dislike, consent, completion, or “seen” | D1–D4 | — | — | pending |
+| P16 | Explicit preference conflicts with hypothesis | Explicit preference wins; hypothesis superseded or invalidated | D1–D4 | — | — | pending |
+| P17 | Forget a learned preference | Remove canonical requested record and content-bearing derivatives; invalidate queued… | D1–D4 | — | — | pending |
+| P18 | Weekly review sees stale dashboard progress | Uses canonical goals/project records; no invented progress | D1–D4 | — | — | pending |
+| P19 | New context event has no relevant active subscriptions | No unnecessary all-agent wake-up or model call | D1–D4 | — | — | pending |
+| P20 | User requests an unknown sensor/capability | Inactive visible proposal naming missing adapter; no fake live data | D1–D4 | — | — | pending |
+| P21 | Routine edit broadens recipient/tool access | Policy proposal requires authority; old permission scope remains effective | D1–D4 | — | — | pending |
+
+## 7. Travel itinerary capability
+
+Stage **E** · planned milestones **E3**
+
+| ID | Given / action | Required result | Milestone | Implementation | Test | Status |
+|---|---|---|---|---|---|---|
+| TR01 | Fixed-date brief with interests, pace, origin and total budget | Up to three distinct sourced options, recommended choice with reasons, daily schedule… | E3 | — | — | pending |
+| TR02 | Destination discovery with a flexible date window | Chosen dates and candidate destinations stay within constraints; fewer supported opti… | E3 | — | — | pending |
+| TR03 | Dates or origin absent | Saved brief and useful tentative outline; no fabricated date-specific fare or outboun… | E3 | — | — | pending |
+| TR04 | No route can meet date/transport/budget constraints | no_feasible_plan with conflicting constraints and explicit relaxation proposals, neve… | E3 | — | — | pending |
+| TR05 | Museum closed during the proposed visit or last admission missed | Invalid visit excluded/moved with evidence; no feasible label for the original schedu… | E3 | — | — | pending |
+| TR06 | Tight transfer, omitted airport leg, overnight or date-line travel | Correct local/UTC dates, all requested door-to-door legs, buffers and overlap validat… | E3 | — | — | pending |
+| TR07 | Relaxed pace and mobility requirement | Activity limits/downtime respected; unknown accessibility shown as unresolved rather… | E3 | — | — | pending |
+| TR08 | Traveler count, room sharing, baggage and mandatory fees | Integer/decimal totals with scope and inclusions; shared costs counted once, unknown… | E3 | — | — | pending |
+| TR09 | Mixed currencies without a valid dated exchange rate | Separate totals and unresolved budget comparison, no invented conversion | E3 | — | — | pending |
+| TR10 | Expired fares, stale venue hours, or weather beyond provider coverage | Recheck or label unknown/tentative; no current availability or forecast claim from st… | E3 | — | — | pending |
+| TR11 | Search snippets, conflicting provider pages, or unavailable optional route ad… | Actually read evidence required; scoped degradation/official-page fallback; no fabric… | E3 | — | — | pending |
+| TR12 | Two options with different pace/cost tradeoffs | Transparent priority-based ranking, distinct alternatives, no unsupported globally-be… | E3 | — | — | pending |
+| TR13 | “Less moving around” revises an existing trip; two concurrent edits | Same trip and immutable revisions; expected_version rejects stale results; selected p… | E3 | — | — | pending |
+| TR14 | Plan or select itinerary without monitoring/booking instructions | No booking, payment, host message, calendar write or activated background checks | E3 | — | — | pending |
+| TR15 | Explicit monitor request with selected option, then restart | Durable scoped checkpoints/events until trip end; already-past and coincident checkpo… | E3 | — | — | pending |
+| TR16 | Repeated closure/disruption events and no-change checks | One material-change notice with before/after evidence and alternatives; no-change che… | E3 | — | — | pending |
+| TR17 | Changed cost quote has different party/fees/date basis | No misleading price-change alert; comparison blocked or labelled non-comparable | E3 | — | — | pending |
+| TR18 | New proposed itinerary moves a confirmed booking | Booking remains a fixed anchor; no remote change; separate proposal/authority needed | E3 | — | — | pending |
+| TR19 | Stop monitoring, cancel trip, or select a new revision | Correct future triggers/subscriptions updated atomically; pending obsolete alerts can… | E3 | — | — | pending |
+| TR20 | Save itinerary into a project with a human file collision | Verified versioned projection via gateway; no overwrite; reusable facts use raw-to-wi… | E3 | — | — | pending |
+| TR21 | Private booking/profile context influences research | Local-only propagation; external queries omit identity/reservation codes and unrelate… | E3 | — | — | pending |
+| TR22 | Explicit preference correction versus one-off itinerary choice | Scoped confirmed preference respected; no permanent habit inferred from a single sele… | E3 | — | — | pending |
+| TR23 | Unsupported monitoring check, missing option, or exhausted root budget | Visible unavailable/needs_input/partial state; no false active/full-plan claim or hid… | E3 | — | — | pending |
+| TR24 | Equivalent CLI, Telegram and API requests/replays | Same brief/revision semantics, authenticated versioned mutations and one logical effe… | E3 | — | — | pending |
+
+## 8. Weather from multiple sources
+
+Stage **D** · planned milestones **D5–D6**
+
+| ID | Given / action | Required result | Milestone | Implementation | Test | Status |
+|---|---|---|---|---|---|---|
+| WF01 | Fresh suitable local authority forecast and several alternatives | Primary follows locality/coverage policy; selected sources and timestamps shown | D5–D6 | — | — | pending |
+| WF02 | Preferred local source stale or unavailable | Fresh suitable fallback clearly labelled; outage not converted into empty weather | D5–D6 | — | — | pending |
+| WF03 | Two websites serve the same underlying model/product/run | One evidence family, no false independent agreement | D5–D6 | — | — | pending |
+| WF04 | Multiple correlated/blended products with incomplete lineage | Compared values retained with correlation/unknown-origin caveat | D5–D6 | — | — | pending |
+| WF05 | Aligned sources cross disagreement thresholds | Primary and alternatives/range plus uncertainty shown; no invented consensus probabil… | D5–D6 | — | — | pending |
+| WF06 | Three-hour probability versus hourly probability or amount | Incompatible statistics kept separate; no averaging, division or false equivalence | D5–D6 | — | — | pending |
+| WF07 | Kelvin/Fahrenheit, m/s, interval-ending rain sums, missing feels-like | Deterministic unit/time normalization; missing/derived values explicit | D5–D6 | — | — | pending |
+| WF08 | Fetch repeats an unchanged old model run | issued_at/age preserved; stale product cannot become fresh through cache refresh | D5–D6 | — | — | pending |
+| WF09 | Fresh observations but no forecast beyond nowcast horizon | Present conditions distinguished from future forecast; missing future coverage visible | D5–D6 | — | — | pending |
+| WF10 | Nearby station has wrong elevation/terrain or foreign destination | Suitability beats simple proximity; destination/jurisdiction sources selected correct… | D5–D6 | — | — | pending |
+| WF11 | Official applicable warning with otherwise mild forecasts | Warning retained with source, area, effective time and instructions; not averaged away | D5–D6 | — | — | pending |
+| WF12 | Warning feed is missing, stale, partial or unavailable | Unknown warning state; no all-clear or cancellation inferred | D5–D6 | — | — | pending |
+| WF13 | Warning update/cancel, older still-valid alert, converted geometry and time b… | Correct lifecycle/coverage; fresh feed retains valid old-issued warning, explicit can… | D5–D6 | — | — | pending |
+| WF14 | Weather and travel process same warning repeatedly | One material revision per issuer/alert/destination; meaningful changes can update | D5–D6 | — | — | pending |
+| WF15 | Only one healthy forecast source | Useful result labelled single_source/degraded comparison, not multiple-source agreeme… | D5–D6 | — | — | pending |
+| WF16 | Far-future travel dates or missing location | No fabricated forecast; missing coverage/needs_input and optional sourced seasonal co… | D5–D6 | — | — | pending |
+| WF17 | Comparator supports rain but preferred source does not | Conditional source-attributed preparation; no changed primary probability or fabricat… | D5–D6 | — | — | pending |
+| WF18 | Provider/routine call budget reached or one source times out | Bounded partial result; successful sources retained and skipped requests visible | D5–D6 | — | — | pending |
+| WF19 | Official feed or source text includes unrelated instructions | Treated as data; no permission promotion, arbitrary fetch, or model egress | D5–D6 | — | — | pending |
+| WF20 | Enable warning subscription without quiet-hour exemption | Ordinary policy retained; authority label alone cannot grant urgent delivery | D5–D6 | — | — | pending |
+| WF21 | Privacy-sensitive home/trip context used for forecast | Only needed location/time/fields sent; profiles, addresses as text and reservation co… | D5–D6 | — | — | pending |
+| WF22 | Add another installed source through vault policy | Shared source registry selects it without planner/bot/scheduler edits; missing adapte… | D5–D6 | — | — | pending |
+| WF23 | Repeated report or save weather finding | Expiring operational state remains separate; explicit durable capture uses raw/ledger… | D5–D6 | — | — | pending |
+| WF24 | CLI/API/bot/departure/travel consume the same bundle | Matching values, labels, source intervals and uncertainty, with no provider-specific… | D5–D6 | — | — | pending |
+
+## 9. Capability extensibility
+
+Stage **C** · planned milestones **C5–C7**
+
+| ID | Given / action | Required result | Milestone | Implementation | Test | Status |
+|---|---|---|---|---|---|---|
+| EX01 | Scaffold a simple local capability from the template | Manifest, instructions, schemas and examples created at explicit path; existing files… | C5–C7 | — | — | pending |
+| EX02 | Register two unrelated fixture packs | Discovered and invoked through unchanged Coordinator/core/CLI/API/bot handlers | C5–C7 | — | — | pending |
+| EX03 | Unknown schema ref, path escape, invalid manifest or colliding operation name | Validation errors before import/network/model/effects; no silent namespace takeover | C5–C7 | — | — | pending |
+| EX04 | Missing/incompatible dependency or cross-pack dependency cycle | Visible blocked availability; no model claim that capability executed | C5–C7 | — | — | pending |
+| EX05 | Pure instruction pack with existing tools | No new Python, DB table or custom scheduler required; shared artifact storage and rol… | C5–C7 | — | — | pending |
+| EX06 | Workflow invokes registered operations using typed references | DAG/schema validation, shared budget/labels/authority; no eval or unbounded loop | C5–C7 | — | — | pending |
+| EX07 | Generic invocation via CLI, /do and HTTP | Same validated input/output, authentication, idempotency and error/run envelopes | C5–C7 | — | — | pending |
+| EX08 | Pack requests extra recipients, spending or arbitrary direct tool access | Manifest cannot grant authority; executor limits effects to actual request/policy | C5–C7 | — | — | pending |
+| EX09 | Enable then disable with queued/in-flight work | New work blocked; pending dependent effects cancelled; in-flight checks respect cance… | C5–C7 | — | — | pending |
+| EX10 | Upgrade during a running job, same-version byte change, or restart pending wo… | Exact package/schema version pinned; same-version mutation rejected; unavailable vers… | C5–C7 | — | — | pending |
+| EX11 | Breaking schema/effect change and rollback | Explicit migration/diff and authority; old state preserved; rollback cannot undo remo… | C5–C7 | — | — | pending |
+| EX12 | Offline conformance examples attempt network/secret/vault access | Denied by isolated test harness; user's real environment not used | C5–C7 | — | — | pending |
+| EX13 | New domain uses capability_objects and concurrent edits | Registered payload schema and expected_version enforced; privacy propagated without b… | C5–C7 | — | — | pending |
+| EX14 | Weather/travel loaded as packs plus simple checklist extension | All share registry/lifecycle/executor; large domain schemas do not become required si… | C5–C7 | — | — | pending |
+
+## 10. Build, migration, operations and release
+
+Stage **E** · planned milestones **E4–E7**
+
+| ID | Given / action | Required result | Milestone | Implementation | Test | Status |
+|---|---|---|---|---|---|---|
+| O01 | Clean checkout installation with uv | Committed uv.lock, locked sync succeeds on supported Python | E4–E7 | — | — | pending |
+| O02 | Wheel installed outside source checkout | CLI imports all modules and finds web assets; pydantic_settings present | E4–E7 | — | — | pending |
+| O03 | Docker build from clean context | No missing core directory, no secrets included; non-root loop run entrypoint | E4–E7 | — | — | pending |
+| O04 | Start without optional connectors/models | Status and deterministic tasks/reminders available; dependencies report truthful state | E4–E7 | — | — | pending |
+| O05 | Run with wrong Python through setup | Clear version diagnostic before arbitrary import traceback | E4–E7 | — | — | pending |
+| O06 | Migrate populated legacy DB in dry-run then apply | Counts/IDs/completions/privacy/remote links preserved; no implicit old routine activa… | E4–E7 | — | — | pending |
+| O07 | API and HTML mutations | Same service behavior as Telegram/CLI; authenticated, CSRF-protected forms return 303 | E4–E7 | — | — | pending |
+| O08 | Repeated HTTP mutation and unknown/stale ID | Defined idempotency/conflict/not-found behavior; no duplicate effect | E4–E7 | — | — | pending |
+| O09 | Backup then isolated restore | Consistent DB+vault+operation manifest, pending jobs recover; no unrelated files over… | E4–E7 | — | — | pending |
+| O10 | Rebuild indexes after corruption or deletion | Same searchable authorized facts; original state untouched | E4–E7 | — | — | pending |
+| O11 | Retention maintenance | Expired content/derivatives removed, active work pinned, ordinary vault evidence pres… | E4–E7 | — | — | pending |
+| O12 | 500-source synthetic load and timer workload | Report persistence/claim latency, hardware, queue depth; compare main §9 targets | E4–E7 | — | — | pending |
+| O13 | Current service halted/asleep | Status reports stale heartbeat and catch-up limits, not guaranteed continuous availab… | E4–E7 | — | — | pending |
+| O14 | Full acceptance run | Hermetic tests, schema checks, lint/type checks, build and restart tests pass | E4–E7 | — | — | pending |
