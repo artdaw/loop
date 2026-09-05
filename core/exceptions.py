@@ -24,3 +24,16 @@ class PrivacyError(LoopError):
 
 class BackendUnavailableError(LoopError):
     """Raised when a required LLM backend cannot be reached."""
+
+
+class ApprovalRequiredError(LoopError):
+    """Raised when an action needs explicit approval that was not given.
+
+    The autonomy gate's counterpart to :class:`PrivacyError`. Where the privacy
+    gate fails *closed* (never escalating to the cloud), the autonomy gate fails
+    to *asking*: it refuses to act unattended, but the user can always approve.
+    """
+
+
+class WrikeNotConfiguredError(LoopError):
+    """Raised when a Wrike API call is attempted without an API key configured."""

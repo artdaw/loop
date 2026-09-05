@@ -12,6 +12,9 @@ upgrades the read-only dashboard into an interactive one:
     POST /tasks                    Create a task
     POST /tasks/{id}/complete      Mark a task complete
     GET  /search?q=                Semantic search results (ChromaDB)
+    GET  /autonomy                 Autonomy levels per action (Phase 4)
+    POST /autonomy/{action}        Change one action's autonomy level
+    GET  /metrics                  Local-vs-cloud, task, and follow-up metrics
 
 Styling is Tailwind (CDN); search uses HTMX and the action buttons post back
 to the server — no JS framework.
@@ -22,6 +25,7 @@ Run with:
 
 from __future__ import annotations
 
+import contextlib
 from datetime import date
 from pathlib import Path
 
@@ -35,13 +39,24 @@ from core.memory import MemoryStore
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
-app = FastAPI(title="Loop", version="0.2.0")
+app = FastAPI(title="Loop", version="0.3.0")
+
+# Test seam: when set, every request uses this store/settings instead of
+# building one from the ambient environment. Production never sets these.
+_store_override: MemoryStore | None = None
+_settings_override = None
 
 
 def _memory() -> MemoryStore:
+    if _store_override is not None:
+        return _store_override
     store = MemoryStore()
     store.bootstrap()
     return store
+
+
+def _settings():
+    return _settings_override or get_settings()
 
 
 @app.get("/health")
@@ -96,18 +111,26 @@ def follow_ups(request: Request) -> HTMLResponse:
 
 
 @app.get("/tasks", response_class=HTMLResponse)
-def tasks(request: Request) -> HTMLResponse:
-    """List all open tasks."""
+def tasks(request: Request, project: str = "") -> HTMLResponse:
+    """List all open tasks, optionally filtered to one project."""
     store = _memory()
+    selected = project.strip() or None
     try:
-        open_tasks = store.list_open_tasks()
-        overdue = set(t.id for t in store.get_overdue())
+        open_tasks = store.list_open_tasks(project=selected)
+        overdue = {t.id for t in store.get_overdue()}
+        projects = store.known_task_projects()
     except Exception:  # noqa: BLE001
-        open_tasks, overdue = [], set()
+        open_tasks, overdue, projects = [], set(), []
     return templates.TemplateResponse(
         request,
         "tasks.html",
-        {"tasks": open_tasks, "overdue_ids": overdue, "active": "tasks"},
+        {
+            "tasks": open_tasks,
+            "overdue_ids": overdue,
+            "projects": projects,
+            "selected_project": selected,
+            "active": "tasks",
+        },
     )
 
 
@@ -122,10 +145,9 @@ def approve_follow_up(follow_up_id: int) -> RedirectResponse:
     dashboard records the approval so the item leaves the queue either way.
     """
     store = _memory()
-    try:
+    # A dashboard action must never 500: a failed write leaves the item queued.
+    with contextlib.suppress(Exception):
         store.set_follow_up_status(follow_up_id, "sent")
-    except Exception:  # noqa: BLE001 - never 500 the dashboard
-        pass
     return RedirectResponse(url="/follow-ups", status_code=303)
 
 
@@ -134,10 +156,8 @@ def snooze_follow_up_route(follow_up_id: int,
                            hours: int = Form(24)) -> RedirectResponse:
     """Snooze a follow-up for a number of hours (hidden until then)."""
     store = _memory()
-    try:
+    with contextlib.suppress(Exception):
         store.snooze_follow_up(follow_up_id, hours)
-    except Exception:  # noqa: BLE001
-        pass
     return RedirectResponse(url="/follow-ups", status_code=303)
 
 
@@ -145,10 +165,8 @@ def snooze_follow_up_route(follow_up_id: int,
 def ignore_follow_up(follow_up_id: int) -> RedirectResponse:
     """Dismiss a follow-up (mark it ignored)."""
     store = _memory()
-    try:
+    with contextlib.suppress(Exception):
         store.set_follow_up_status(follow_up_id, "ignored")
-    except Exception:  # noqa: BLE001
-        pass
     return RedirectResponse(url="/follow-ups", status_code=303)
 
 
@@ -162,10 +180,8 @@ def create_task(description: str = Form(...),
     store = _memory()
     text = description.strip()
     if text:
-        try:
+        with contextlib.suppress(Exception):
             store.add_task(text, priority=priority, source="web")
-        except Exception:  # noqa: BLE001
-            pass
     return RedirectResponse(url="/tasks", status_code=303)
 
 
@@ -173,10 +189,8 @@ def create_task(description: str = Form(...),
 def complete_task_route(task_id: int) -> RedirectResponse:
     """Mark a task complete."""
     store = _memory()
-    try:
+    with contextlib.suppress(Exception):
         store.complete_task(task_id)
-    except Exception:  # noqa: BLE001
-        pass
     return RedirectResponse(url="/tasks", status_code=303)
 
 
@@ -199,4 +213,87 @@ def search(request: Request, q: str = "") -> HTMLResponse:
         request,
         template,
         {"query": q, "results": results, "error": error, "active": "search"},
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Autonomy (Phase 4)
+# --------------------------------------------------------------------------- #
+@app.get("/autonomy", response_class=HTMLResponse)
+def autonomy_page(request: Request) -> HTMLResponse:
+    """Show the autonomy level for every action type."""
+    from core.autonomy import AutonomyGate, AutonomyLevel
+
+    gate = AutonomyGate(_settings(), _memory())
+    rows = []
+    for action, decision in gate.levels_table().items():
+        rows.append({
+            "action": action.value,
+            "level": decision.level.label,
+            "ceiling": gate.ceiling_for(action).label,
+            "capped": decision.capped,
+            "reason": decision.reason,
+            "requires_approval": decision.requires_approval,
+            "allowed": decision.allowed,
+        })
+
+    try:
+        audit = gate.recent_audit(limit=15)
+    except Exception:  # noqa: BLE001 - never 500 the dashboard
+        audit = []
+
+    return templates.TemplateResponse(
+        request,
+        "autonomy.html",
+        {
+            "rows": rows,
+            "levels": [level.label for level in AutonomyLevel],
+            "audit": audit,
+            "active": "autonomy",
+        },
+    )
+
+
+@app.post("/autonomy/{action}")
+def set_autonomy(action: str, level: str = Form(...)) -> RedirectResponse:
+    """Change one action's autonomy level, then redirect back to the listing."""
+    from core.autonomy import ActionType, AutonomyGate
+
+    # Unknown action or unparseable level: leave the setting untouched rather
+    # than 500-ing the dashboard.
+    with contextlib.suppress(Exception):
+        gate = AutonomyGate(_settings(), _memory())
+        gate.set_level(ActionType(action), level)
+    return RedirectResponse(url="/autonomy", status_code=303)
+
+
+# --------------------------------------------------------------------------- #
+# Metrics (Phase 4)
+# --------------------------------------------------------------------------- #
+@app.get("/metrics", response_class=HTMLResponse)
+def metrics_page(request: Request, days: int = 30) -> HTMLResponse:
+    """Local-vs-cloud, task, follow-up, and autonomy metrics."""
+    from core.metrics import DashboardMetrics, MetricsCollector
+
+    window = max(1, min(days, 365))
+    try:
+        summary = MetricsCollector(_memory()).summary(days=window)
+    except Exception:  # noqa: BLE001 - never 500 the dashboard
+        from core.metrics import (
+            AutonomyMetrics,
+            FollowUpMetrics,
+            LLMUsageMetrics,
+            TaskMetrics,
+        )
+
+        summary = DashboardMetrics(
+            days=window,
+            llm=LLMUsageMetrics(),
+            tasks=TaskMetrics(),
+            follow_ups=FollowUpMetrics(),
+            autonomy=AutonomyMetrics(),
+        )
+
+    return templates.TemplateResponse(
+        request, "metrics.html", {"m": summary, "active": "metrics"},
     )

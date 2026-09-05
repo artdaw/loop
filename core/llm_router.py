@@ -137,9 +137,7 @@ class LLMRouter:
         lowered = stripped.lower()
         if any(marker in lowered for marker in _REFUSAL_MARKERS):
             return True
-        if latency > self._latency_budget:
-            return True
-        return False
+        return latency > self._latency_budget
 
     # ------------------------------------------------------------------ #
     # Usage logging
@@ -191,7 +189,8 @@ class LLMRouter:
         except Exception as exc:  # noqa: BLE001 - normalise to our error type
             raise BackendUnavailableError(f"Ollama unavailable: {exc}") from exc
         # ollama returns {"message": {"content": ...}} (dict or object).
-        message = response.get("message") if isinstance(response, dict) else getattr(response, "message", None)
+        message = (response.get("message") if isinstance(response, dict)
+                   else getattr(response, "message", None))
         if isinstance(message, dict):
             return (message.get("content") or "").strip()
         return (getattr(message, "content", "") or "").strip()

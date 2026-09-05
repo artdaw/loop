@@ -17,6 +17,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from config.settings import Settings, get_settings
 from core.llm_router import LLMRouter
@@ -65,11 +66,85 @@ class KnowledgeSpecialist:
     def __init__(self, settings: Settings | None = None,
                  router: LLMRouter | None = None,
                  vault: ObsidianVault | None = None,
-                 vector_store: VectorStore | None = None) -> None:
+                 vector_store: VectorStore | None = None,
+                 transcriber: Any | None = None,
+                 gate: Any | None = None) -> None:
         self.settings = settings or get_settings()
         self.router = router or LLMRouter(self.settings)
         self.vault = vault or ObsidianVault(self.settings)
         self.vectors = vector_store or VectorStore(self.settings)
+        # Optional local transcriber for voice-to-note (Phase 4).
+        self._transcriber = transcriber
+        # Optional AutonomyGate; vault writes are gated by NOTE_WRITE.
+        self._gate = gate
+
+    def _get_transcriber(self) -> Any:
+        if self._transcriber is None:
+            from integrations.transcribe import FasterWhisperTranscriber
+
+            self._transcriber = FasterWhisperTranscriber(self.settings)
+        return self._transcriber
+
+    # ------------------------------------------------------------------ #
+    # Voice-to-note (Phase 4)
+    # ------------------------------------------------------------------ #
+    def note_from_audio(self, audio_path: str | Path, *,
+                        source: str = "telegram_voice",
+                        write: bool = True) -> NoteDraft:
+        """Transcribe an audio file and turn it into a vault note.
+
+        **Audio is unconditionally local-only.** Voice memos are the most
+        personal content Loop handles and the user cannot review each one before
+        it is processed, so both the transcription (local by construction) and
+        the note-formatting LLM call are pinned to the local model. If Ollama is
+        down, the privacy gate fails closed and this raises rather than falling
+        back to the cloud.
+
+        The note lands in the private vault when one is configured, otherwise
+        the main vault.
+        """
+        from integrations.transcribe import INSTALL_HINT
+
+        path = Path(audio_path)
+        transcriber = self._get_transcriber()
+        if not transcriber.available():
+            raise RuntimeError(INSTALL_HINT)
+
+        transcript = transcriber.transcribe(path)
+        if not transcript:
+            raise ValueError(f"Transcription of {path.name} produced no text.")
+
+        # local_only=True is not a default a caller may override: see the
+        # docstring. Everything below stays on the local model.
+        slip = self.format_zettelkasten(transcript.text, local_only=True)
+        draft = NoteDraft(
+            title=slip["title"],
+            body=slip["body"],
+            para_folder="Resources",
+            tags=sorted({*slip["tags"], "voice-note"}),
+            links=slip["links"],
+        )
+
+        if write:
+            self._write_private_note(draft, source=source)
+        return draft
+
+    def _write_private_note(self, draft: NoteDraft, *, source: str) -> Path:
+        """Write a voice note to the private vault (falling back to the main one)."""
+        private = (self.settings.obsidian_private_vault_path or "").strip()
+        root = Path(private).expanduser() if private else self.vault.vault_path
+
+        if self._gate is not None:
+            from core.autonomy import ActionType
+
+            self._gate.guard(ActionType.NOTE_WRITE, approved=True,
+                             detail=f"{source}: {draft.title}")
+
+        filename = self._slugify(draft.title) + ".md"
+        return self.write_to_vault(
+            draft.to_markdown(), filename, root,
+            para_folder=draft.para_folder, overwrite=True,
+        )
 
     # ------------------------------------------------------------------ #
     # PARA classification

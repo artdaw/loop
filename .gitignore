@@ -24,3 +24,6 @@ env/
 .idea/
 .vscode/
 *.swp
+
+# --- Python venv ---
+.venv/

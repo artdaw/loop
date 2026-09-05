@@ -94,6 +94,61 @@ class Scheduler:
         if run_immediately:
             _job()
 
+    def schedule_wrike_sync(self, wrike_sync, *, minutes: int = 30,
+                            run_immediately: bool = False) -> None:
+        """Register the recurring Wrike sync.
+
+        ``wrike_sync.sync()`` is a coroutine that never raises — it reports
+        problems in its :class:`~core.wrike_sync.SyncReport` instead. The
+        try/except here is belt-and-braces so a surprise still cannot take the
+        scheduler down.
+
+        Args:
+            wrike_sync: object exposing an async ``sync()`` method.
+            minutes: polling interval (defaults to every 30 minutes).
+            run_immediately: also run one sync at startup.
+        """
+        def _job() -> None:
+            try:
+                report = asyncio.run(wrike_sync.sync())
+                logger.info("%s", report.summary())
+            except Exception:  # noqa: BLE001 - never let a job crash the scheduler
+                logger.exception("Wrike sync failed")
+
+        self.add_interval_job(_job, minutes=minutes, job_id="wrike_sync")
+        if run_immediately:
+            _job()
+
+    def schedule_weekly_review(self, review, deliveries: Iterable, *,
+                               day_of_week: str = "sun", hour: int = 18,
+                               minute: int = 0) -> None:
+        """Register the weekly review digest.
+
+        Args:
+            review: an object exposing ``compose() -> str``.
+            deliveries: iterable of delivery objects exposing ``send(text)``.
+            day_of_week: APScheduler day name (mon..sun).
+            hour, minute: local time to fire.
+        """
+        delivery_list = list(deliveries)
+
+        def _job() -> None:
+            try:
+                text = review.compose()
+            except Exception:  # noqa: BLE001 - never let a job crash the scheduler
+                logger.exception("Failed to build the weekly review")
+                return
+            for delivery in delivery_list:
+                try:
+                    delivery.send(text)
+                except Exception:  # noqa: BLE001 - one channel must not block others
+                    logger.exception("Failed to deliver the weekly review via %s",
+                                     type(delivery).__name__)
+
+        self._scheduler.add_job(_job, "cron", day_of_week=day_of_week, hour=hour,
+                                minute=minute, id="weekly_review",
+                                replace_existing=True)
+
     def start(self) -> None:
         """Start the background scheduler."""
         self._scheduler.start()

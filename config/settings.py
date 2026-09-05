@@ -100,6 +100,33 @@ class Settings(BaseSettings):
     # A session is considered expired after this many hours of inactivity.
     session_ttl_hours: int = 24
 
+    # --- Autonomy (Phase 4) -----------------------------------------------
+    # How autonomously Loop may act by default: observe | suggest | approve | act.
+    # Per-action overrides live in the `preferences` table (autonomy.<action>).
+    default_autonomy_level: str = "approve"
+    # Hard ceiling for outbound email, applied on top of any preference. Raising
+    # this to "act" is a deliberate config change, never a dashboard click.
+    max_autonomy_email_send: str = "approve"
+
+    # --- Projects (Phase 4) -----------------------------------------------
+    # Extra projects beyond the vault's PARA `Projects/` folder, as CSV of
+    # "Name:keyword1|keyword2" entries, e.g. "Atlas:atlas|migration,Falcon:falcon".
+    projects: str = ""
+
+    # --- Weekly review (Phase 4) ------------------------------------------
+    weekly_review_day: str = "sun"      # mon|tue|wed|thu|fri|sat|sun
+    weekly_review_time: str = "18:00"   # local HH:MM
+
+    # --- Wrike sync (Phase 4) ---------------------------------------------
+    wrike_sync_minutes: int = 30        # background sync interval
+    wrike_folder_id: str = ""           # optional folder for pushed tasks
+
+    # --- Voice-to-note (Phase 4) ------------------------------------------
+    # faster-whisper runs locally; audio never leaves the machine.
+    whisper_model_size: str = "base"    # tiny|base|small|medium|large-v3
+    whisper_device: str = "cpu"         # cpu|cuda|auto
+    whisper_compute_type: str = "int8"  # int8|float16|float32
+
     # ------------------------------------------------------------------ #
     # Derived helpers
     # ------------------------------------------------------------------ #

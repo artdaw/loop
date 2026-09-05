@@ -8,13 +8,17 @@ end-of-day summary. Wrike sync arrives in a later phase.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from typing import Any
 
 from config.settings import Settings, get_settings
 from core.llm_router import LLMRouter
 from core.memory import MemoryStore, Task
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -31,11 +35,15 @@ class TaskSpecialist:
 
     def __init__(self, settings: Settings | None = None,
                  router: LLMRouter | None = None,
-                 memory: MemoryStore | None = None) -> None:
+                 memory: MemoryStore | None = None,
+                 matcher: Any | None = None) -> None:
         self.settings = settings or get_settings()
         self.router = router or LLMRouter(self.settings)
         self.memory = memory or MemoryStore(self.settings)
         self.memory.bootstrap()
+        # Optional ProjectMatcher (Phase 4). Without one, tasks are untagged —
+        # which keeps the pre-Phase-4 behaviour for callers that do not opt in.
+        self.matcher = matcher
 
     # ------------------------------------------------------------------ #
     # Parsing
@@ -76,14 +84,32 @@ class TaskSpecialist:
     # ------------------------------------------------------------------ #
     # Persistence
     # ------------------------------------------------------------------ #
-    def save_task(self, task: ParsedTask, *, source: str = "chat") -> Task:
-        """Persist a parsed task to SQLite and return the stored row."""
+    def save_task(self, task: ParsedTask, *, source: str = "chat",
+                  project: str | None = None) -> Task:
+        """Persist a parsed task to SQLite and return the stored row.
+
+        An explicit ``project`` always wins; otherwise the injected
+        :class:`~core.projects.ProjectMatcher` (if any) tags the task from its
+        description.
+        """
+        slug = project or self._match_project(task.description)
         return self.memory.add_task(
             task.description,
             due_date=task.due_date,
             priority=task.priority,
             source=source,
+            project=slug,
         )
+
+    def _match_project(self, text: str) -> str | None:
+        """Best-effort project tagging; never blocks task capture."""
+        if self.matcher is None:
+            return None
+        try:
+            return self.matcher.match_slug(text)
+        except Exception:  # noqa: BLE001 - tagging is a nicety, not a gate
+            logger.exception("Project matching failed for a task")
+            return None
 
     def capture_from_text(self, text: str, *, source: str = "chat") -> Task:
         """Convenience: parse a chat message and save the resulting task."""

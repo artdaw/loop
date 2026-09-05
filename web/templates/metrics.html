@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}Metrics — Loop{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex items-baseline justify-between flex-wrap gap-2">
+  <h1 class="text-xl font-semibold text-slate-900">Metrics</h1>
+  <div class="flex items-center gap-1 text-sm">
+    {% for window in [7, 30, 90] %}
+    <a href="/metrics?days={{ window }}"
+       class="px-2.5 py-1 rounded-md {% if m.days == window %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-200{% endif %}">
+      {{ window }}d
+    </a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if not m.has_data %}
+<div class="bg-white rounded-xl border border-slate-200 p-10 text-center">
+  <p class="text-slate-500">No data yet.</p>
+  <p class="mt-2 text-sm text-slate-400">
+    Metrics appear once Loop has answered a question, tracked a task, or flagged
+    an email.
+  </p>
+</div>
+{% else %}
+
+{# The headline: the product's central claim, made checkable. #}
+<div class="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+  <div class="flex items-end gap-3 flex-wrap">
+    <span class="text-5xl font-bold text-emerald-600">{{ m.llm.local_percent }}%</span>
+    <span class="text-slate-600 pb-2">
+      of {{ m.llm.total }} AI request{{ '' if m.llm.total == 1 else 's' }} served locally
+    </span>
+  </div>
+
+  <div class="mt-4 h-3 w-full rounded-full bg-slate-200 overflow-hidden flex">
+    <div class="h-full bg-emerald-500" style="width: {{ m.llm.local_percent }}%"></div>
+    <div class="h-full bg-amber-400" style="width: {{ m.llm.cloud_percent }}%"></div>
+  </div>
+  <div class="mt-2 flex gap-4 text-xs text-slate-500">
+    <span><span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+      local {{ m.llm.local_count }}</span>
+    <span><span class="inline-block w-2 h-2 rounded-full bg-amber-400"></span>
+      cloud {{ m.llm.cloud_count }}</span>
+    {% if m.llm.private_count %}
+    <span class="text-slate-400">
+      {{ m.llm.private_count }} marked private (cloud was never an option)
+    </span>
+    {% endif %}
+  </div>
+
+  <div class="mt-4 pt-4 border-t border-slate-100 flex gap-6 text-sm text-slate-600">
+    <span>avg latency <strong>{{ m.llm.avg_latency_ms }}ms</strong></span>
+    <span>p95 <strong>{{ m.llm.p95_latency_ms }}ms</strong></span>
+  </div>
+</div>
+
+<div class="grid gap-4 sm:grid-cols-2 mb-6">
+  <div class="bg-white rounded-xl border border-slate-200 p-5">
+    <h2 class="text-sm font-semibold text-slate-900 mb-3">Tasks</h2>
+    <div class="flex items-end gap-2">
+      <span class="text-3xl font-bold text-slate-900">{{ m.tasks.completion_percent }}%</span>
+      <span class="text-sm text-slate-500 pb-1">completed</span>
+    </div>
+    <div class="mt-3 h-2 w-full rounded-full bg-slate-200 overflow-hidden">
+      <div class="h-full bg-slate-900" style="width: {{ m.tasks.completion_percent }}%"></div>
+    </div>
+    <dl class="mt-4 space-y-1 text-sm text-slate-600">
+      <div class="flex justify-between"><dt>created</dt><dd>{{ m.tasks.created }}</dd></div>
+      <div class="flex justify-between"><dt>completed</dt><dd>{{ m.tasks.completed }}</dd></div>
+      <div class="flex justify-between"><dt>still open</dt><dd>{{ m.tasks.open }}</dd></div>
+      {% if m.tasks.overdue %}
+      <div class="flex justify-between text-red-600">
+        <dt>overdue</dt><dd>{{ m.tasks.overdue }}</dd>
+      </div>
+      {% endif %}
+    </dl>
+  </div>
+
+  <div class="bg-white rounded-xl border border-slate-200 p-5">
+    <h2 class="text-sm font-semibold text-slate-900 mb-3">Follow-ups</h2>
+    <div class="flex items-end gap-2">
+      <span class="text-3xl font-bold text-slate-900">{{ m.follow_ups.resolution_percent }}%</span>
+      <span class="text-sm text-slate-500 pb-1">resolved</span>
+    </div>
+    <div class="mt-3 h-2 w-full rounded-full bg-slate-200 overflow-hidden">
+      <div class="h-full bg-blue-500" style="width: {{ m.follow_ups.resolution_percent }}%"></div>
+    </div>
+    <dl class="mt-4 space-y-1 text-sm text-slate-600">
+      <div class="flex justify-between"><dt>resolved</dt><dd>{{ m.follow_ups.resolved }}</dd></div>
+      <div class="flex justify-between"><dt>ignored</dt><dd>{{ m.follow_ups.ignored }}</dd></div>
+      <div class="flex justify-between"><dt>pending</dt><dd>{{ m.follow_ups.pending }}</dd></div>
+    </dl>
+  </div>
+</div>
+
+{% if m.autonomy.total %}
+<div class="bg-white rounded-xl border border-slate-200 p-5 mb-6">
+  <h2 class="text-sm font-semibold text-slate-900 mb-3">Autonomy</h2>
+  <p class="text-sm text-slate-600">
+    {{ m.autonomy.executed }} of {{ m.autonomy.total }} gated action{{ '' if m.autonomy.total == 1 else 's' }}
+    ran unattended ({{ m.autonomy.executed_percent }}%);
+    {{ m.autonomy.blocked }} waited for approval.
+  </p>
+  {% if m.autonomy.by_action %}
+  <div class="mt-4 space-y-2">
+    {% set top = m.autonomy.by_action[0][1] %}
+    {% for action, count in m.autonomy.by_action %}
+    <div class="flex items-center gap-3 text-sm">
+      <code class="w-32 shrink-0 text-slate-600">{{ action }}</code>
+      <div class="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+        <div class="h-full bg-slate-400"
+             style="width: {{ (count / top * 100) | round | int }}%"></div>
+      </div>
+      <span class="w-8 text-right text-slate-500">{{ count }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if m.llm.daily %}
+<div class="bg-white rounded-xl border border-slate-200 p-5">
+  <h2 class="text-sm font-semibold text-slate-900 mb-3">Requests per day</h2>
+  {% set peak = m.llm.daily | map(attribute=1) | max %}
+  <div class="flex items-end gap-1 h-24 overflow-x-auto">
+    {% for day, count in m.llm.daily %}
+    <div class="flex flex-col items-center justify-end h-full min-w-[10px]" title="{{ day }}: {{ count }}">
+      <div class="w-2.5 rounded-t bg-emerald-500"
+           style="height: {{ (count / peak * 100) | round | int }}%"></div>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="mt-2 text-xs text-slate-400">
+    {{ m.llm.daily[0][0] }} → {{ m.llm.daily[-1][0] }}, peak {{ peak }}/day
+  </p>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
