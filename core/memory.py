@@ -11,7 +11,7 @@ dashboard. Semantic vector memory lives in :mod:`core.vector_store` (ChromaDB).
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import (
@@ -99,6 +99,28 @@ class LLMUsageLog(Base):
     prompt_hash: Mapped[str] = mapped_column(String(64), default="")
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     local_only: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ConversationTurn(Base):
+    """A single turn (user or assistant message) in a conversation session."""
+
+    __tablename__ = "conversation_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(128), index=True)
+    role: Mapped[str] = mapped_column(String(16))  # user | assistant | system
+    content: Mapped[str] = mapped_column(Text, default="")
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class SessionSummary(Base):
+    """A one-paragraph summary of a conversation session."""
+
+    __tablename__ = "session_summaries"
+
+    session_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class MemoryStore:
@@ -251,3 +273,151 @@ class MemoryStore:
             else:
                 pref.value = value
             session.commit()
+
+
+
+class ConversationMemory:
+    """Persistent conversation context for the orchestrator (Phase 3).
+
+    Stores every turn of a conversation in SQLite so the assistant can carry
+    context across CLI/chat interactions. Sessions expire after
+    ``settings.session_ttl_hours`` of inactivity: once expired, ``get_recent``
+    returns nothing so the orchestrator naturally starts a fresh context.
+
+    ``summarise_session`` uses the LOCAL LLM only (privacy-safe) to produce a
+    one-paragraph recap stored in ``session_summaries``.
+    """
+
+    def __init__(self, settings: Settings | None = None,
+                 memory: "MemoryStore | None" = None,
+                 router: "object | None" = None) -> None:
+        self.settings = settings or get_settings()
+        self.store = memory or MemoryStore(self.settings)
+        self.store.bootstrap()
+        self._router = router  # optional LLMRouter; lazily created when summarising
+
+    # ------------------------------------------------------------------ #
+    # Turn persistence
+    # ------------------------------------------------------------------ #
+    async def save_turn(self, role: str, content: str, session_id: str) -> None:
+        """Persist a single conversation turn."""
+        with self.store.session() as session:
+            session.add(
+                ConversationTurn(session_id=session_id, role=role, content=content)
+            )
+            session.commit()
+
+    async def get_recent(self, session_id: str, n: int = 10) -> list[dict[str, str]]:
+        """Return the last ``n`` turns for a session as ``{role, content}`` dicts.
+
+        Returns an empty list when the session has expired (no activity within
+        ``session_ttl_hours``), so callers transparently start fresh.
+        """
+        if self.is_expired(session_id):
+            return []
+        with self.store.session() as session:
+            rows = session.scalars(
+                select(ConversationTurn)
+                .where(ConversationTurn.session_id == session_id)
+                .order_by(ConversationTurn.id.desc())
+                .limit(n)
+            ).all()
+        turns = [{"role": r.role, "content": r.content} for r in reversed(rows)]
+        return turns
+
+    # ------------------------------------------------------------------ #
+    # Expiry
+    # ------------------------------------------------------------------ #
+    def _last_activity(self, session_id: str) -> datetime | None:
+        with self.store.session() as session:
+            row = session.scalars(
+                select(ConversationTurn)
+                .where(ConversationTurn.session_id == session_id)
+                .order_by(ConversationTurn.id.desc())
+                .limit(1)
+            ).first()
+            return row.timestamp if row else None
+
+    def is_expired(self, session_id: str) -> bool:
+        """True when the session's last turn is older than the configured TTL."""
+        last = self._last_activity(session_id)
+        if last is None:
+            return False  # brand-new session, not "expired"
+        ttl = timedelta(hours=self.settings.session_ttl_hours)
+        return datetime.utcnow() - last > ttl
+
+    def purge_expired(self) -> int:
+        """Delete all turns belonging to expired sessions. Returns rows removed."""
+        ttl = timedelta(hours=self.settings.session_ttl_hours)
+        cutoff = datetime.utcnow() - ttl
+        removed = 0
+        with self.store.session() as session:
+            # Find sessions whose most recent turn is before the cutoff.
+            all_sessions = session.scalars(
+                select(ConversationTurn.session_id).distinct()
+            ).all()
+            for sid in all_sessions:
+                latest = session.scalars(
+                    select(ConversationTurn)
+                    .where(ConversationTurn.session_id == sid)
+                    .order_by(ConversationTurn.id.desc())
+                    .limit(1)
+                ).first()
+                if latest and latest.timestamp < cutoff:
+                    stale = session.scalars(
+                        select(ConversationTurn).where(
+                            ConversationTurn.session_id == sid
+                        )
+                    ).all()
+                    for row in stale:
+                        session.delete(row)
+                        removed += 1
+            session.commit()
+        return removed
+
+    # ------------------------------------------------------------------ #
+    # Summarisation (local LLM only)
+    # ------------------------------------------------------------------ #
+    async def summarise_session(self, session_id: str) -> str:
+        """Summarise a session into one paragraph using the LOCAL LLM.
+
+        The summary is stored in ``session_summaries`` and returned. Uses the
+        local model only (``local_only=True``) so conversation content never
+        reaches a cloud provider.
+        """
+        with self.store.session() as session:
+            rows = session.scalars(
+                select(ConversationTurn)
+                .where(ConversationTurn.session_id == session_id)
+                .order_by(ConversationTurn.id.asc())
+            ).all()
+        if not rows:
+            return ""
+
+        transcript = "\n".join(f"{r.role}: {r.content}" for r in rows)
+        prompt = (
+            "Summarise the following conversation in a single concise paragraph. "
+            "Capture the key topics, decisions, and any open action items.\n\n"
+            f"{transcript}\n\nSummary:"
+        )
+        router = self._get_router()
+        # Local-only: conversation history stays on the machine.
+        result = await router.route_async(prompt, {"local_only": True, "source": "conversation"})
+        summary = result.text.strip()
+
+        with self.store.session() as session:
+            existing = session.get(SessionSummary, session_id)
+            if existing is None:
+                session.add(SessionSummary(session_id=session_id, summary=summary))
+            else:
+                existing.summary = summary
+                existing.updated_at = datetime.utcnow()
+            session.commit()
+        return summary
+
+    def _get_router(self):
+        if self._router is None:
+            from core.llm_router import LLMRouter
+
+            self._router = LLMRouter(self.settings, memory=self.store)
+        return self._router
