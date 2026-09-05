@@ -108,10 +108,49 @@ def _excerpt(document: str, query: str, *, width: int = 160) -> str:
 @app.command()
 def ask(
     question: str = typer.Argument(..., help="Free-form question across all sources."),
+    local: bool = typer.Option(
+        False, "--local", "-l",
+        help="Force local-only inference (never use the cloud LLM).",
+    ),
+    session: str = typer.Option(
+        "cli", "--session", "-s",
+        help="Conversation session id (keeps context across questions).",
+    ),
 ) -> None:
-    """Ask a free-form question across all connected sources (Phase 3)."""
-    typer.echo(f"(Phase 3 stub) You asked: {question!r}")
-    # TODO(phase3): route through the Orchestrator for a cross-source answer.
+    """Ask a free-form question across all connected sources (Phase 3).
+
+    Retrieves relevant notes/emails, blends in recent conversation history,
+    and answers via the privacy-gated LLM router (local-first, with an
+    Anthropic fallback for non-private work). Private sources always stay
+    local; ``--local`` forces local-only regardless of source.
+    """
+    import asyncio
+
+    from core.orchestrator import Orchestrator
+
+    async def _run() -> None:
+        orchestrator = Orchestrator()
+        response = await orchestrator.ask(
+            question,
+            session_id=session,
+            local_only=True if local else None,
+        )
+        typer.echo(response.text)
+        if response.actions:
+            meta = response.actions[0]
+            typer.secho(
+                f"\n[backend: {meta.get('backend')} | "
+                f"local_only: {meta.get('local_only')} | "
+                f"sources: {meta.get('sources')}]",
+                fg=typer.colors.BRIGHT_BLACK,
+            )
+
+    try:
+        asyncio.run(_run())
+    except Exception as exc:  # noqa: BLE001 - surface a friendly message
+        typer.secho(f"Ask failed: {exc}", fg=typer.colors.RED)
+        typer.echo("Is Ollama running (for local inference and embeddings)?")
+        raise typer.Exit(code=1) from exc
 
 
 def main() -> None:

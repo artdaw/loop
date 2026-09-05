@@ -16,9 +16,21 @@ Autonomous sending is out of scope for v1 — sending always requires approval.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from config.settings import Settings, get_settings
 from core.vector_store import VectorStore
+
+# Keywords that raise an email's urgency score.
+_URGENCY_KEYWORDS: tuple[str, ...] = (
+    "urgent", "asap", "as soon as possible", "deadline", "today", "eod",
+    "immediately", "critical", "important", "time-sensitive", "reminder",
+)
+
+# Valid triage actions.
+TRIAGE_ACTIONS: tuple[str, ...] = (
+    "reply_now", "reply_later", "read_only", "delegate", "archive",
+)
 
 
 @dataclass
@@ -30,15 +42,117 @@ class FlaggedThread:
     tag: str  # needs-reply | waiting-for-reply | FYI | action-required
 
 
+@dataclass
+class TriageScore:
+    """The triage outcome for a single email."""
+
+    urgency: int      # 1..5
+    importance: int   # 1..5
+    action: str       # one of TRIAGE_ACTIONS
+
+    @property
+    def score(self) -> int:
+        """Composite ranking score (urgency * importance, 1..25)."""
+        return self.urgency * self.importance
+
+
 class EmailSpecialist:
     """Focused sub-agent for everything email."""
 
     def __init__(self, settings: Settings | None = None,
-                 vector_store: VectorStore | None = None) -> None:
+                 vector_store: VectorStore | None = None,
+                 memory: Any | None = None) -> None:
         self.settings = settings or get_settings()
         self.vectors = vector_store or VectorStore(self.settings)
+        # Optional MemoryStore for persisting triage scores onto follow-ups.
+        self._memory = memory
         # TODO(phase1): accept Gmail + Outlook connectors and the LLMRouter.
-        # TODO(phase1): accept the MemoryStore for follow-up persistence.
+
+    # ------------------------------------------------------------------ #
+    # Triage scoring (Phase 3)
+    # ------------------------------------------------------------------ #
+    def triage_email(self, email: Any) -> TriageScore:
+        """Score an email's urgency and importance and recommend an action.
+
+        ``email`` may be any object/dict exposing the fields we read:
+        ``subject``, ``sender``, ``snippet``/``body``, ``cc`` (list),
+        ``thread_length`` (int), and ``sender_in_contacts`` (bool).
+
+        - urgency (1-5): urgency keywords in subject/body + VIP/boss sender.
+        - importance (1-5): thread length, CC count, sender in contacts, VIP.
+        - action: reply_now | reply_later | read_only | delegate | archive.
+        """
+        subject = str(self._get(email, "subject", "") or "")
+        sender = str(self._get(email, "sender", "") or "").lower()
+        body = str(self._get(email, "body", "") or self._get(email, "snippet", "") or "")
+        cc = self._get(email, "cc", []) or []
+        cc_count = len(cc) if isinstance(cc, (list, tuple)) else int(cc or 0)
+        thread_length = int(self._get(email, "thread_length", 1) or 1)
+        in_contacts = bool(self._get(email, "sender_in_contacts", False))
+
+        is_vip = any(vip in sender for vip in self.settings.vip_sender_list)
+        haystack = f"{subject}\n{body}".lower()
+        keyword_hits = sum(1 for kw in _URGENCY_KEYWORDS if kw in haystack)
+
+        # --- Urgency (1..5) --------------------------------------------
+        urgency = 1
+        urgency += min(keyword_hits, 3)          # up to +3 for urgency keywords
+        if is_vip:
+            urgency += 1                          # VIP/boss bumps urgency
+        urgency = max(1, min(urgency, 5))
+
+        # --- Importance (1..5) -----------------------------------------
+        importance = 1
+        if is_vip:
+            importance += 2
+        if in_contacts:
+            importance += 1
+        if thread_length >= 3:
+            importance += 1
+        if cc_count >= 3:
+            importance += 1
+        importance = max(1, min(importance, 5))
+
+        action = self._recommend_action(urgency, importance, is_vip=is_vip,
+                                        cc_count=cc_count)
+        return TriageScore(urgency=urgency, importance=importance, action=action)
+
+    @staticmethod
+    def _recommend_action(urgency: int, importance: int, *, is_vip: bool,
+                          cc_count: int) -> str:
+        """Map (urgency, importance) to a recommended action."""
+        composite = urgency * importance
+        if urgency >= 4 and importance >= 4:
+            return "reply_now"
+        if importance >= 4 and urgency <= 2:
+            return "reply_later"
+        if composite <= 3 and not is_vip:
+            return "archive"
+        if importance <= 2 and cc_count >= 3:
+            # Broadly CC'd, low importance to me -> likely delegable/FYI.
+            return "delegate" if urgency >= 3 else "read_only"
+        if composite >= 9:
+            return "reply_now"
+        return "reply_later"
+
+    def triage_and_persist(self, follow_up_id: int, email: Any) -> TriageScore:
+        """Triage an email and persist its composite score onto a follow-up."""
+        score = self.triage_email(email)
+        if self._memory is not None:
+            self._memory.set_follow_up_triage(follow_up_id, score.score)
+        return score
+
+    def briefing_order(self, follow_ups: list) -> list:
+        """Return follow-ups sorted by triage score (urgency*importance), highest first."""
+        return sorted(follow_ups, key=lambda f: getattr(f, "triage_score", 0) or 0,
+                      reverse=True)
+
+    @staticmethod
+    def _get(obj: Any, key: str, default: Any = None) -> Any:
+        """Read ``key`` from an object attribute or a dict."""
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
 
     def index_email(self, subject: str, summary: str, sender: str, date: str) -> str:
         """Index an email summary into the ChromaDB emails collection.

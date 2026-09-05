@@ -61,7 +61,11 @@ class Settings(BaseSettings):
 
     # --- LLM: cloud fallback (Anthropic) ----------------------------------
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-3-5-sonnet-latest"
+    anthropic_model: str = "claude-3-5-sonnet-20241022"
+    # Latency (seconds) above which a local response triggers a cloud fallback.
+    llm_fallback_latency_seconds: float = 10.0
+    # Minimum local response length (characters) before triggering a fallback.
+    llm_fallback_min_chars: int = 50
 
     # --- Obsidian ----------------------------------------------------------
     obsidian_vault_path: str = "~/Obsidian/Vault"
@@ -86,6 +90,23 @@ class Settings(BaseSettings):
     private_personal_calendar: bool = True
     # Treat personal (non-group) Telegram chats as local-only.
     private_telegram_personal: bool = True
+
+    # --- Email triage (Phase 3) -------------------------------------------
+    # Comma-separated VIP sender addresses. Mail from these senders scores
+    # higher on both urgency and importance.
+    vip_senders: str = ""
+
+    # --- Conversation memory (Phase 3) ------------------------------------
+    # A session is considered expired after this many hours of inactivity.
+    session_ttl_hours: int = 24
+
+    # ------------------------------------------------------------------ #
+    # Derived helpers
+    # ------------------------------------------------------------------ #
+    @property
+    def vip_sender_list(self) -> list[str]:
+        """Return the configured VIP senders as a normalised list."""
+        return [s.strip().lower() for s in self.vip_senders.split(",") if s.strip()]
 
 
 @lru_cache

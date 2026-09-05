@@ -4,6 +4,11 @@
 #   docker compose run --rm app loop briefing
 #
 # The first run pulls the default Ollama models (see the `ollama-init` service).
+#
+# Per-user isolation: scripts/new_user.sh writes COMPOSE_PROJECT_NAME=loop-<user>
+# into each instance's .env. Docker Compose reads that from .env automatically,
+# so every peer gets their own containers, network and named volumes — no shared
+# state between instances.
 
 services:
   # Local LLM runtime. Models are stored in the named volume `ollama`.

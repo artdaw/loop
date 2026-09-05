@@ -6,16 +6,37 @@
 {% if follow_ups %}
 <div class="bg-white rounded-xl shadow-sm border border-slate-200 divide-y divide-slate-100">
   {% for f in follow_ups %}
-  <div class="p-4 flex items-start justify-between">
+  <div class="p-4 flex items-start justify-between gap-4">
     <div>
       <p class="font-medium">{{ f.subject or "(no subject)" }}</p>
       {% if f.sender %}<p class="text-sm text-slate-500">{{ f.sender }}</p>{% endif %}
-      <p class="text-xs text-slate-400 mt-1">Last sent: {{ f.last_sent_at }}</p>
+      <p class="text-xs text-slate-400 mt-1">
+        Last sent: {{ f.last_sent_at }}
+        {% if f.triage_score %} · priority score {{ f.triage_score }}{% endif %}
+      </p>
     </div>
-    <span class="text-xs px-2 py-1 rounded-full
-      {% if f.status == 'drafted' %}bg-blue-100 text-blue-700{% else %}bg-amber-100 text-amber-700{% endif %}">
-      {{ f.status }}
-    </span>
+    <div class="flex items-center gap-2 shrink-0">
+      <span class="text-xs px-2 py-1 rounded-full
+        {% if f.status == 'drafted' %}bg-blue-100 text-blue-700{% else %}bg-amber-100 text-amber-700{% endif %}">
+        {{ f.status }}
+      </span>
+      <form method="post" action="/follow-ups/{{ f.id }}/approve">
+        <button class="text-xs px-2 py-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700">
+          Approve
+        </button>
+      </form>
+      <form method="post" action="/follow-ups/{{ f.id }}/snooze">
+        <input type="hidden" name="hours" value="24">
+        <button class="text-xs px-2 py-1 rounded-md bg-slate-200 text-slate-700 hover:bg-slate-300">
+          Snooze 24h
+        </button>
+      </form>
+      <form method="post" action="/follow-ups/{{ f.id }}/ignore">
+        <button class="text-xs px-2 py-1 rounded-md bg-white border border-slate-300 text-slate-500 hover:bg-slate-50">
+          Ignore
+        </button>
+      </form>
+    </div>
   </div>
   {% endfor %}
 </div>
