@@ -191,11 +191,12 @@ class HealthChecker:
             hint="download OAuth client credentials from Google Cloud Console",
         ))
 
-        if settings.outlook_client_id.strip() and settings.outlook_client_secret.strip():
+        # Device-code sign-in needs only a client id; the secret is optional.
+        if settings.outlook_client_id.strip():
             results.append(IntegrationStatus("outlook", True,
                                              f"tenant {settings.outlook_tenant_id}"))
         else:
-            results.append(IntegrationStatus("outlook", False, "no client id/secret"))
+            results.append(IntegrationStatus("outlook", False, "no client id"))
 
         if settings.teams_app_id.strip() and settings.teams_app_password.strip():
             results.append(IntegrationStatus("teams", True, "bot framework app set"))

@@ -110,7 +110,7 @@ loop status
 loop briefing
 
 # optional web dashboard (read-only):
-uvicorn web.main:app --reload --port 8000
+.venv/bin/uvicorn web.main:app --reload --port 8000
 ```
 
 ### Phase 2 setup notes
@@ -139,10 +139,18 @@ Proactive reminders and follow-up prompts are sent via
 `TeamsBot.send_proactive(conversation_ref, message)`.
 
 ### CLI commands
+
+Start the Telegram bot locally with `loop telegram`. It accepts messages only
+from `TELEGRAM_CHAT_ID` and supports `/status`, `/briefing`, `/task <text>`,
+`/tasks`, and `/done <id>`. Plain text is sent to Loop's assistant; private-chat
+questions are forced through the local model. In Docker, the `app` service runs
+the bot automatically.
+
 | Command | Description | Phase |
 |---|---|---|
 | `loop status` | What is wired up, what is not, what is waiting | 1 |
 | `loop briefing` | Today's meetings, flagged threads, tasks due | 1 |
+| `loop telegram` | Run the private Telegram bot with long polling | 1 |
 | `loop snooze <id> --hours N` | Hide a follow-up from the briefing | 1 |
 | `loop find "<query>"` | Semantic search over Obsidian | 2 |
 | `loop ask "<question>"` | Free-form query across all sources | 3 |
@@ -154,11 +162,11 @@ Proactive reminders and follow-up prompts are sent via
 | `loop note-from-audio <path>` | Transcribe a voice memo into a vault note | 4 |
 
 > **Note:** Phases 1–4 are implemented, and everything that reads local state
-> works today — `status`, `briefing`, `snooze`, `find`, `ask`, `review`, `sync`,
-> `metrics`, and the dashboard.
+> works today — `status`, `briefing`, `telegram`, `snooze`, `find`, `ask`,
+> `review`, `sync`, `metrics`, and the dashboard.
 >
 > What remains stubbed is the **external transport**: the Gmail, Outlook,
-> Google/Outlook Calendar, and Telegram-polling clients are still
+> and Google/Outlook Calendar clients are still
 > `TODO(phase1)`. So Loop can rank, schedule, and draft around your mail and
 > meetings, but cannot yet fetch or send them. `loop briefing` says so plainly
 > rather than rendering an empty diary — an assistant that quietly omits your
@@ -269,7 +277,7 @@ with the action, level, and outcome — never the content.
 uv venv --python 3.12       # if you have not created the environment yet
 source .venv/bin/activate
 uv pip install -e ".[dev]"
-pytest          # 182 tests, hermetic: no network, model, keys, or .env
+pytest          # 288 tests, hermetic: no network, model, keys, or .env
 ruff check .
 mypy .
 ```

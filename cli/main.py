@@ -44,6 +44,19 @@ def briefing() -> None:
     typer.echo(DailyBriefing(memory=_store(), calendar=_calendar()).compose())
 
 
+@app.command()
+def telegram() -> None:
+    """Run the private Telegram bot using long polling."""
+    from integrations.telegram_bot import TelegramBot
+
+    typer.echo("Starting Loop's Telegram bot. Press Ctrl+C to stop.")
+    try:
+        TelegramBot(memory=_store(), calendar=_calendar()).run_polling()
+    except RuntimeError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+
+
 def _calendar():
     """Build a CalendarSpecialist wired to whichever calendars are configured.
 
@@ -66,7 +79,9 @@ def _calendar():
 
         google = GoogleCalendarClient(settings)
 
-    if settings.outlook_client_id.strip() and settings.outlook_client_secret.strip():
+    # Only a client id is needed: Loop signs in with the delegated device-code
+    # flow, which uses a public client and therefore carries no secret.
+    if settings.outlook_client_id.strip():
         from integrations.outlook_calendar import OutlookCalendarClient
 
         outlook = OutlookCalendarClient(settings)

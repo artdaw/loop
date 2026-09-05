@@ -30,6 +30,15 @@ _URGENCY_KEYWORDS: tuple[str, ...] = (
 
 logger = logging.getLogger(__name__)
 
+#: Maps a triage action onto the coarser tag the dashboard and briefing show.
+_TAG_FOR_ACTION: dict[str, str] = {
+    "reply_now": "action-required",
+    "reply_later": "needs-reply",
+    "delegate": "action-required",
+    "read_only": "FYI",
+    "archive": "FYI",
+}
+
 # Valid triage actions.
 TRIAGE_ACTIONS: tuple[str, ...] = (
     "reply_now", "reply_later", "read_only", "delegate", "archive",
@@ -66,7 +75,9 @@ class EmailSpecialist:
     def __init__(self, settings: Settings | None = None,
                  vector_store: VectorStore | None = None,
                  memory: Any | None = None,
-                 matcher: Any | None = None) -> None:
+                 matcher: Any | None = None,
+                 gmail: Any | None = None,
+                 outlook: Any | None = None) -> None:
         self.settings = settings or get_settings()
         self.vectors = vector_store or VectorStore(self.settings)
         # Optional MemoryStore for persisting triage scores onto follow-ups.
@@ -74,6 +85,13 @@ class EmailSpecialist:
         # Optional ProjectMatcher (Phase 4). Mail that belongs to an active
         # project is more important to you than mail that belongs to none.
         self.matcher = matcher
+        # Mail connectors. Both expose the same normalised interface, so this
+        # class never branches on provider.
+        self._gmail = gmail
+        self._outlook = outlook
+        # Which providers failed on the last scan, so callers can distinguish
+        # "no flagged mail" from "could not read the mailbox".
+        self.last_errors: list[str] = []
         # TODO(phase1): accept Gmail + Outlook connectors and the LLMRouter.
 
     # ------------------------------------------------------------------ #
@@ -186,15 +204,105 @@ class EmailSpecialist:
         """
         return self.vectors.index_email(subject, summary, sender, date)
 
-    def scan_inboxes(self) -> list[FlaggedThread]:
-        """Fetch recent threads and classify them into tags."""
-        # TODO(phase1): call gmail + outlook connectors; classify each thread.
-        raise NotImplementedError("EmailSpecialist.scan_inboxes is a Phase 1 stub.")
+    def _providers(self) -> list[tuple[str, Any]]:
+        """The configured mail connectors, as (name, client) pairs."""
+        return [(name, client)
+                for name, client in (("gmail", self._gmail), ("outlook", self._outlook))
+                if client is not None]
+
+    def scan_inboxes(self, *, max_results: int = 25) -> list[FlaggedThread]:
+        """Fetch unread mail from every connected provider and classify it.
+
+        Providers are polled independently: one mailbox failing must not hide
+        the other's mail. Failures land in :attr:`last_errors`.
+        """
+        self.last_errors = []
+        flagged: list[FlaggedThread] = []
+
+        for name, client in self._providers():
+            try:
+                messages = client.list_unread(max_results=max_results)
+            except Exception as exc:  # noqa: BLE001 - one provider must not sink the rest
+                self.last_errors.append(f"{name}: {exc}")
+                logger.exception("Could not read the %s inbox", name)
+                continue
+
+            for message in messages:
+                score = self.triage_email(message)
+                flagged.append(FlaggedThread(
+                    thread_id=message.thread_id,
+                    subject=message.subject,
+                    tag=_TAG_FOR_ACTION.get(score.action, "FYI"),
+                ))
+
+        return flagged
 
     def find_follow_ups_due(self) -> list[FlaggedThread]:
-        """Return threads sent by the user with no reply past the window."""
-        # TODO(phase1): compare last_sent_at against settings.follow_up_window_hours.
-        raise NotImplementedError("EmailSpecialist.find_follow_ups_due is a Phase 1 stub.")
+        """Return threads the user sent that have gone unanswered too long.
+
+        The window comes from ``settings.follow_up_window_hours``; the
+        connectors apply it, so this method is provider-agnostic.
+        """
+        self.last_errors = []
+        flagged: list[FlaggedThread] = []
+
+        for name, client in self._providers():
+            try:
+                threads = client.threads_awaiting_reply()
+            except Exception as exc:  # noqa: BLE001
+                self.last_errors.append(f"{name}: {exc}")
+                logger.exception("Could not scan %s for stalled threads", name)
+                continue
+
+            for thread in threads:
+                flagged.append(FlaggedThread(
+                    thread_id=thread.thread_id,
+                    subject=thread.subject,
+                    tag="waiting-for-reply",
+                ))
+
+        return flagged
+
+    def persist_follow_ups(self) -> int:
+        """Store stalled threads so the briefing and dashboard can show them.
+
+        Existing rows are left alone — re-scanning must not resurrect a thread
+        the user already snoozed or ignored. Returns the number newly recorded.
+        """
+        if self._memory is None:
+            return 0
+
+        known = {row.thread_id for row in
+                 self._memory.list_open_follow_ups(include_snoozed=True)}
+        recorded = 0
+
+        for name, client in self._providers():
+            try:
+                threads = client.threads_awaiting_reply()
+            except Exception as exc:  # noqa: BLE001
+                self.last_errors.append(f"{name}: {exc}")
+                continue
+
+            for thread in threads:
+                if thread.thread_id in known:
+                    continue
+                last = thread.last_from_me
+                score = self.triage_email({
+                    "subject": thread.subject,
+                    "sender": last.sender if last else "",
+                    "body": last.snippet if last else "",
+                    "thread_length": len(thread.messages),
+                })
+                self._memory.add_follow_up(
+                    thread_id=thread.thread_id,
+                    subject=thread.subject,
+                    sender=last.sender if last else "",
+                    triage_score=score.score,
+                )
+                known.add(thread.thread_id)
+                recorded += 1
+
+        return recorded
 
     def draft_follow_up(self, thread_id: str) -> str:
         """Draft a follow-up message for a stalled thread (needs approval)."""

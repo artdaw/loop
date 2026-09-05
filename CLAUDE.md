@@ -23,7 +23,7 @@ pip install -e ".[voice]"        # optional: faster-whisper for voice-to-note
 loop --help                      # or: python -m cli.main --help
 uvicorn web.main:app --reload --port 8000
 
-pytest                           # 182 tests; hermetic, no network/model/keys/.env
+pytest                           # 288 tests; hermetic, no network/model/keys/.env
 pytest tests/test_autonomy.py -v # a single file
 pytest -k "ceiling"              # a single test by name
 ruff check .                     # rule set pinned in [tool.ruff.lint]
@@ -115,6 +115,18 @@ that use them so unconfigured deployments still start. Keep new integrations doi
 - Audio is unconditionally `local_only` — there is no cloud transcriber behind the `Transcriber`
   protocol and the design forbids adding one.
 - Project matching is deterministic and LLM-free on purpose; it runs on every inbound item.
+- **Connectors: parse separately from transport.** Every provider module keeps normalisation in
+  module-level pure functions (`_to_message`, `_to_event`) and injects the transport
+  (`service=` for Google, `graph=`/`transport=` for Microsoft), so the fiddly parts — MIME headers,
+  RFC-2822 dates, all-day events, Graph's nested recipients — are tested with no SDK or network.
+- **Gmail and Google Calendar share one OAuth token** with a unioned scope set (`google_auth.py`).
+  Per-connector scopes would mean whichever ran second invalidated the first's access.
+- **Outlook is delegated device-code auth** (`/me` endpoints, `msal`), not app-only, and needs only
+  a client id — no secret. Calendar reads go through `/me/calendarView`, which expands recurring
+  series; `/me/events` would return the master once and miss every occurrence.
+- **Poll providers independently.** `CalendarSpecialist.get_all_events_today` and
+  `EmailSpecialist.scan_inboxes` catch per connector and record `last_errors`; one broken provider
+  must never discard another's results.
 - `loop status`/`briefing` live in `core/health.py` and `specialists/briefing.py`, split
   collect-then-render like `review.py`. Neither may raise: a missing connector or unreachable
   service is a *state to report*. `_calendar()` in the CLI must pass real connectors — a

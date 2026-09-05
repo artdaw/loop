@@ -16,11 +16,14 @@ Conflict/double-booking detection lands in Phase 3.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from difflib import SequenceMatcher
 
 from config.settings import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,6 +37,47 @@ class CalendarEvent:
     attendees: list[str] = field(default_factory=list)
     location: str = ""
     is_personal: bool = False  # drives the privacy gate
+
+
+def _ensure_aware(value: datetime | None) -> datetime | None:
+    """Attach the local timezone to a naive datetime.
+
+    Providers disagree: Google all-day events carry a bare date, Graph returns
+    UTC-aware timestamps. Sorting or subtracting a mix of naive and aware
+    datetimes raises TypeError, so everything is normalised as it enters the
+    specialist rather than at each comparison site.
+    """
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.astimezone()
+
+
+def _adapt(event: object) -> CalendarEvent | None:
+    """Convert any provider's event object into a :class:`CalendarEvent`.
+
+    Google and Outlook return their own dataclasses with the same field names.
+    Adapting here keeps every downstream consumer — conflict detection, the
+    briefing, the privacy gate — working against one type.
+    """
+    start = _ensure_aware(getattr(event, "start", None))
+    if start is None:
+        return None
+    end = _ensure_aware(getattr(event, "end", None)) or start
+
+    if isinstance(event, CalendarEvent):
+        # Already the right type; just fix the timezone awareness.
+        event.start, event.end = start, end
+        return event
+
+    return CalendarEvent(
+        event_id=str(getattr(event, "event_id", "") or ""),
+        title=str(getattr(event, "title", "") or "(no title)"),
+        start=start,
+        end=end,
+        attendees=list(getattr(event, "attendees", []) or []),
+        location=str(getattr(event, "location", "") or ""),
+        is_personal=bool(getattr(event, "is_personal", False)),
+    )
 
 
 @dataclass
@@ -68,6 +112,9 @@ class CalendarSpecialist:
         self._google = google_calendar
         self._outlook = outlook_calendar
         self._delivery = delivery
+        # Populated by get_all_events_today: which providers failed and why, so
+        # callers can distinguish "no meetings" from "could not read the diary".
+        self.last_errors: list[str] = []
         # TODO(phase1): accept the Scheduler for reminder jobs.
 
     # ------------------------------------------------------------------ #
@@ -123,21 +170,47 @@ class CalendarSpecialist:
     async def get_all_events_today(self) -> list[CalendarEvent]:
         """Fetch today's events from every connected calendar, merged + deduped.
 
-        Each connector is expected to expose an async ``todays_events()``
-        returning :class:`CalendarEvent` objects. Missing connectors are
-        skipped so the method degrades gracefully in partial deployments.
+        Each connector is polled **independently**: one provider raising (a
+        stubbed connector, an expired token, Graph being down) must not discard
+        the events another provider returned successfully. Losing a working
+        calendar because a broken one shared the loop would produce an empty
+        diary indistinguishable from a genuinely free day.
+
+        Failures are recorded on :attr:`last_errors` so callers — the briefing,
+        ``loop status`` — can say *why* a calendar is missing instead of
+        silently showing nothing.
+
+        Connectors may be sync (the Google and Graph SDK wrappers) or async.
+        Sync ones run in a worker thread so a blocking HTTP call does not stall
+        the event loop.
         """
+        self.last_errors = []
         collected: list[CalendarEvent] = []
-        for connector in (self._google, self._outlook):
+
+        for name, connector in (("google", self._google), ("outlook", self._outlook)):
             if connector is None:
                 continue
             fetch = getattr(connector, "todays_events", None)
             if fetch is None:
                 continue
-            result = fetch()
-            if hasattr(result, "__await__"):
-                result = await result
-            collected.extend(result or [])
+            try:
+                result = fetch()
+                if hasattr(result, "__await__"):
+                    result = await result
+            except NotImplementedError as exc:
+                self.last_errors.append(f"{name}: not implemented ({exc})")
+                logger.info("Calendar connector %s is not implemented", name)
+                continue
+            except Exception as exc:  # noqa: BLE001 - one provider must not sink the rest
+                self.last_errors.append(f"{name}: {exc}")
+                logger.exception("Calendar connector %s failed", name)
+                continue
+
+            for raw in result or []:
+                adapted = _adapt(raw)
+                if adapted is not None:
+                    collected.append(adapted)
+
         return self._merge_dedup(collected)
 
     async def check_and_warn_conflicts(self) -> list[ConflictWarning]:

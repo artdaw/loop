@@ -37,3 +37,13 @@ class ApprovalRequiredError(LoopError):
 
 class WrikeNotConfiguredError(LoopError):
     """Raised when a Wrike API call is attempted without an API key configured."""
+
+
+class AuthRequiredError(LoopError):
+    """Raised when an integration needs a sign-in that cannot be done right now.
+
+    Distinct from a missing configuration: the credentials are present but no
+    valid token exists and the environment cannot run an interactive flow (a
+    container, a cron job, a background scheduler). The message tells the user
+    which command to run on a machine with a browser.
+    """
