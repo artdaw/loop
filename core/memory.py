@@ -45,6 +45,10 @@ class FollowUp(Base):
     last_sent_at: Mapped[datetime] = mapped_column(DateTime)
     status: Mapped[str] = mapped_column(String(32), default="waiting")  # waiting|drafted|sent|ignored
     draft_text: Mapped[str] = mapped_column(Text, default="")
+    # Composite triage score (urgency * importance, 1..25). Higher = sort first.
+    triage_score: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    # When snoozed, don't resurface before this time.
+    snooze_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Reminder(Base):
@@ -230,15 +234,84 @@ class MemoryStore:
     # ------------------------------------------------------------------ #
     # Follow-up helpers (used by the web dashboard)
     # ------------------------------------------------------------------ #
-    def list_open_follow_ups(self) -> list[FollowUp]:
-        """Return follow-ups not yet sent or ignored."""
+    def list_open_follow_ups(self, *, include_snoozed: bool = False) -> list[FollowUp]:
+        """Return open follow-ups ordered by triage score (highest first).
+
+        Snoozed follow-ups whose snooze window has not elapsed are hidden unless
+        ``include_snoozed`` is True.
+        """
+        now = datetime.utcnow()
         with self.session() as session:
             rows = session.scalars(
                 select(FollowUp).where(FollowUp.status.in_(["waiting", "drafted"]))
             ).all()
-            for row in rows:
+            if not include_snoozed:
+                rows = [
+                    r for r in rows
+                    if not (r.snooze_until and r.snooze_until > now)
+                ]
+            ordered = sorted(rows, key=lambda f: f.triage_score or 0, reverse=True)
+            for row in ordered:
                 session.expunge(row)
-            return list(rows)
+            return list(ordered)
+
+    def add_follow_up(self, *, thread_id: str, subject: str = "", sender: str = "",
+                      last_sent_at: datetime | None = None, draft_text: str = "",
+                      status: str = "waiting", triage_score: int = 0) -> FollowUp:
+        """Create and persist a follow-up row; returns a detached copy."""
+        with self.session() as session:
+            fu = FollowUp(
+                thread_id=thread_id,
+                subject=subject,
+                sender=sender,
+                last_sent_at=last_sent_at or datetime.utcnow(),
+                draft_text=draft_text,
+                status=status,
+                triage_score=triage_score,
+            )
+            session.add(fu)
+            session.commit()
+            session.refresh(fu)
+            session.expunge(fu)
+            return fu
+
+    def get_follow_up(self, follow_up_id: int) -> FollowUp | None:
+        """Return a single follow-up (detached) or None."""
+        with self.session() as session:
+            fu = session.get(FollowUp, follow_up_id)
+            if fu is not None:
+                session.expunge(fu)
+            return fu
+
+    def set_follow_up_status(self, follow_up_id: int, status: str) -> bool:
+        """Update a follow-up's status (e.g. 'sent', 'ignored'). Returns True if found."""
+        with self.session() as session:
+            fu = session.get(FollowUp, follow_up_id)
+            if fu is None:
+                return False
+            fu.status = status
+            session.commit()
+            return True
+
+    def snooze_follow_up(self, follow_up_id: int, hours: int) -> bool:
+        """Hide a follow-up for ``hours`` hours. Returns True if found."""
+        with self.session() as session:
+            fu = session.get(FollowUp, follow_up_id)
+            if fu is None:
+                return False
+            fu.snooze_until = datetime.utcnow() + timedelta(hours=hours)
+            session.commit()
+            return True
+
+    def set_follow_up_triage(self, follow_up_id: int, score: int) -> bool:
+        """Persist a computed triage score on a follow-up. Returns True if found."""
+        with self.session() as session:
+            fu = session.get(FollowUp, follow_up_id)
+            if fu is None:
+                return False
+            fu.triage_score = score
+            session.commit()
+            return True
 
     # ------------------------------------------------------------------ #
     # LLM usage logging (Phase 3)
