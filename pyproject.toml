@@ -19,6 +19,9 @@ dependencies = [
     "msgraph-sdk>=1.0",
     "google-api-python-client>=2.130",
     "google-auth-oauthlib>=1.2",
+    "botbuilder-core>=4.15",
+    "botbuilder-integration-aiohttp>=4.15",
+    "watchdog>=4.0",
     # Persistence
     "sqlalchemy>=2.0",
     "chromadb>=0.5",
@@ -26,6 +29,7 @@ dependencies = [
     "typer>=0.12",
     "fastapi>=0.115",
     "uvicorn>=0.30",
+    "jinja2>=3.1",
     # Config + scheduling + HTTP
     "pydantic-settings>=2.4",
     "apscheduler>=3.10",
