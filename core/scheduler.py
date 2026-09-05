@@ -7,6 +7,7 @@ task summary. Built on APScheduler.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable, Iterable
 
@@ -66,6 +67,32 @@ class Scheduler:
                                      type(delivery).__name__)
 
         self.add_daily_job(_job, hour=hour, minute=minute, job_id="end_of_day_summary")
+
+    def schedule_calendar_conflicts(self, calendar_specialist, *,
+                                    minutes: int = 15,
+                                    run_immediately: bool = True) -> None:
+        """Register the recurring calendar conflict/double-booking check.
+
+        Runs ``calendar_specialist.check_and_warn_conflicts()`` (an async
+        coroutine) every ``minutes`` minutes, and optionally once right away at
+        startup. The coroutine is driven with :func:`asyncio.run` because
+        APScheduler executes sync callables in its worker threads.
+
+        Args:
+            calendar_specialist: object exposing an async
+                ``check_and_warn_conflicts()`` method.
+            minutes: polling interval (defaults to every 15 minutes).
+            run_immediately: also run one check at startup.
+        """
+        def _job() -> None:
+            try:
+                asyncio.run(calendar_specialist.check_and_warn_conflicts())
+            except Exception:  # noqa: BLE001 - never let a job crash the scheduler
+                logger.exception("Calendar conflict check failed")
+
+        self.add_interval_job(_job, minutes=minutes, job_id="calendar_conflicts")
+        if run_immediately:
+            _job()
 
     def start(self) -> None:
         """Start the background scheduler."""
