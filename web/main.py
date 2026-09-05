@@ -276,3 +276,35 @@ def set_autonomy(action: str, level: str = Form(...)) -> RedirectResponse:
     except Exception:  # noqa: BLE001 - never 500 the dashboard
         pass
     return RedirectResponse(url="/autonomy", status_code=303)
+
+
+# --------------------------------------------------------------------------- #
+# Metrics (Phase 4)
+# --------------------------------------------------------------------------- #
+@app.get("/metrics", response_class=HTMLResponse)
+def metrics_page(request: Request, days: int = 30) -> HTMLResponse:
+    """Local-vs-cloud, task, follow-up, and autonomy metrics."""
+    from core.metrics import DashboardMetrics, MetricsCollector
+
+    window = max(1, min(days, 365))
+    try:
+        summary = MetricsCollector(_memory()).summary(days=window)
+    except Exception:  # noqa: BLE001 - never 500 the dashboard
+        from core.metrics import (
+            AutonomyMetrics,
+            FollowUpMetrics,
+            LLMUsageMetrics,
+            TaskMetrics,
+        )
+
+        summary = DashboardMetrics(
+            days=window,
+            llm=LLMUsageMetrics(),
+            tasks=TaskMetrics(),
+            follow_ups=FollowUpMetrics(),
+            autonomy=AutonomyMetrics(),
+        )
+
+    return templates.TemplateResponse(
+        request, "metrics.html", {"m": summary, "active": "metrics"},
+    )

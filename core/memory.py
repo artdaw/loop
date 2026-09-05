@@ -599,6 +599,73 @@ class MemoryStore:
             "top_projects": top_projects,
         }
 
+    def llm_usage_rows(self, window_start: datetime,
+                       window_end: datetime) -> list[dict]:
+        """Return LLM usage rows in the window as plain dicts.
+
+        Dicts rather than ORM objects so the metrics layer stays independent of
+        the schema. Note there is no prompt content here — only the hash the
+        router stores.
+        """
+        with self.session() as session:
+            rows = session.execute(
+                select(
+                    LLMUsageLog.timestamp,
+                    LLMUsageLog.backend,
+                    LLMUsageLog.latency_ms,
+                    LLMUsageLog.local_only,
+                ).where(
+                    LLMUsageLog.timestamp >= window_start,
+                    LLMUsageLog.timestamp <= window_end,
+                ).order_by(LLMUsageLog.timestamp)
+            ).all()
+        return [
+            {
+                "timestamp": timestamp,
+                "backend": backend,
+                "latency_ms": latency_ms,
+                "local_only": bool(local_only),
+            }
+            for timestamp, backend, latency_ms, local_only in rows
+        ]
+
+    def autonomy_rows(self, window_start: datetime,
+                      window_end: datetime) -> list[dict]:
+        """Return autonomy audit rows in the window as plain dicts."""
+        with self.session() as session:
+            rows = session.execute(
+                select(
+                    AutonomyAudit.timestamp,
+                    AutonomyAudit.action,
+                    AutonomyAudit.level,
+                    AutonomyAudit.executed,
+                    AutonomyAudit.approved,
+                ).where(
+                    AutonomyAudit.timestamp >= window_start,
+                    AutonomyAudit.timestamp <= window_end,
+                ).order_by(AutonomyAudit.timestamp)
+            ).all()
+        return [
+            {
+                "timestamp": timestamp,
+                "action": action,
+                "level": level,
+                "executed": bool(executed),
+                "approved": bool(approved),
+            }
+            for timestamp, action, level, executed, approved in rows
+        ]
+
+    def backdate_llm_usage(self, row_id: int, when: date) -> bool:
+        """Move a usage row's timestamp. Used by tests and data repair."""
+        with self.session() as session:
+            row = session.get(LLMUsageLog, row_id)
+            if row is None:
+                return False
+            row.timestamp = datetime.combine(when, datetime.min.time())
+            session.commit()
+            return True
+
     def backdate_task(self, task_id: int, created: date) -> bool:
         """Move a task's creation date. Used by tests and data repair."""
         with self.session() as session:

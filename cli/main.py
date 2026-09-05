@@ -316,6 +316,44 @@ def note_from_audio(
         typer.echo(draft.to_markdown())
 
 
+@app.command()
+def metrics(
+    days: int = typer.Option(30, "--days", "-d", help="Window size in days."),
+) -> None:
+    """Show what Loop has been doing, and how much of it stayed local."""
+    from core.metrics import MetricsCollector
+
+    summary = MetricsCollector(_store()).summary(days=max(1, days))
+
+    if not summary.has_data:
+        typer.echo("No data yet — metrics appear once Loop has answered a "
+                   "question, tracked a task, or flagged an email.")
+        raise typer.Exit(code=0)
+
+    typer.echo(f"Loop metrics — last {summary.days} days\n")
+
+    llm = summary.llm
+    typer.secho(f"  {llm.local_percent}% of {llm.total} AI requests served locally",
+                fg=typer.colors.GREEN, bold=True)
+    typer.echo(f"    local {llm.local_count} | cloud {llm.cloud_count} "
+               f"| private {llm.private_count}")
+    typer.echo(f"    latency: avg {llm.avg_latency_ms}ms, p95 {llm.p95_latency_ms}ms\n")
+
+    tasks = summary.tasks
+    typer.echo(f"  Tasks: {tasks.completed}/{tasks.created} completed "
+               f"({tasks.completion_percent}%), {tasks.open} open")
+    if tasks.overdue:
+        typer.secho(f"    {tasks.overdue} overdue", fg=typer.colors.RED)
+
+    follow_ups = summary.follow_ups
+    typer.echo(f"  Follow-ups: {follow_ups.resolved} resolved, "
+               f"{follow_ups.ignored} ignored, {follow_ups.pending} pending")
+
+    if summary.autonomy.total:
+        typer.echo(f"  Autonomy: {summary.autonomy.executed}/{summary.autonomy.total} "
+                   f"actions ran unattended")
+
+
 def _store():
     """Build a bootstrapped MemoryStore for the CLI."""
     from core.memory import MemoryStore
