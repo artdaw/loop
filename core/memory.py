@@ -14,7 +14,16 @@ from __future__ import annotations
 from datetime import date, datetime
 from pathlib import Path
 
-from sqlalchemy import Boolean, Date, DateTime, String, Text, create_engine, select
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Integer,
+    String,
+    Text,
+    create_engine,
+    select,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from config.settings import Settings, get_settings
@@ -72,6 +81,24 @@ class Preference(Base):
 
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
     value: Mapped[str] = mapped_column(Text, default="")
+
+
+class LLMUsageLog(Base):
+    """One row per LLM request, recording which backend served it.
+
+    Used by the :class:`~core.llm_router.LLMRouter` to keep an auditable trail
+    of local-vs-cloud usage (Phase 3). ``prompt_hash`` is a SHA-256 digest so
+    we never persist prompt content.
+    """
+
+    __tablename__ = "llm_usage_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    backend: Mapped[str] = mapped_column(String(16))            # local | cloud
+    prompt_hash: Mapped[str] = mapped_column(String(64), default="")
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    local_only: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class MemoryStore:
@@ -190,6 +217,23 @@ class MemoryStore:
             for row in rows:
                 session.expunge(row)
             return list(rows)
+
+    # ------------------------------------------------------------------ #
+    # LLM usage logging (Phase 3)
+    # ------------------------------------------------------------------ #
+    def log_llm_usage(self, *, backend: str, prompt_hash: str, latency_ms: int,
+                      local_only: bool) -> None:
+        """Append a row to ``llm_usage_log`` recording a single LLM request."""
+        with self.session() as session:
+            session.add(
+                LLMUsageLog(
+                    backend=backend,
+                    prompt_hash=prompt_hash,
+                    latency_ms=latency_ms,
+                    local_only=local_only,
+                )
+            )
+            session.commit()
 
     # ------------------------------------------------------------------ #
     # Preference helpers
