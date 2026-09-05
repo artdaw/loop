@@ -57,7 +57,8 @@ class FollowUp(Base):
     subject: Mapped[str] = mapped_column(Text, default="")
     sender: Mapped[str] = mapped_column(String(255), default="")
     last_sent_at: Mapped[datetime] = mapped_column(DateTime)
-    status: Mapped[str] = mapped_column(String(32), default="waiting")  # waiting|drafted|sent|ignored
+    # waiting | drafted | sent | ignored
+    status: Mapped[str] = mapped_column(String(32), default="waiting")
     draft_text: Mapped[str] = mapped_column(Text, default="")
     # Composite triage score (urgency * importance, 1..25). Higher = sort first.
     triage_score: Mapped[int] = mapped_column(Integer, default=0, index=True)
@@ -553,7 +554,7 @@ class MemoryStore:
             follow_up_rows = session.execute(
                 select(FollowUp.status, func.count(FollowUp.id)).group_by(FollowUp.status)
             ).all()
-            by_status = {status: count for status, count in follow_up_rows}
+            by_status: dict[str, int] = {row[0]: row[1] for row in follow_up_rows}
 
             llm_rows = session.execute(
                 select(LLMUsageLog.backend, func.count(LLMUsageLog.id))
@@ -563,7 +564,7 @@ class MemoryStore:
                 )
                 .group_by(LLMUsageLog.backend)
             ).all()
-            by_backend = {backend: count for backend, count in llm_rows}
+            by_backend: dict[str, int] = {row[0]: row[1] for row in llm_rows}
 
             autonomy_actions = session.scalar(
                 select(func.count(AutonomyAudit.id)).where(
@@ -737,8 +738,8 @@ class ConversationMemory:
     """
 
     def __init__(self, settings: Settings | None = None,
-                 memory: "MemoryStore | None" = None,
-                 router: "object | None" = None) -> None:
+                 memory: MemoryStore | None = None,
+                 router: object | None = None) -> None:
         self.settings = settings or get_settings()
         self.store = memory or MemoryStore(self.settings)
         self.store.bootstrap()

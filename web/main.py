@@ -25,6 +25,7 @@ Run with:
 
 from __future__ import annotations
 
+import contextlib
 from datetime import date
 from pathlib import Path
 
@@ -144,10 +145,9 @@ def approve_follow_up(follow_up_id: int) -> RedirectResponse:
     dashboard records the approval so the item leaves the queue either way.
     """
     store = _memory()
-    try:
+    # A dashboard action must never 500: a failed write leaves the item queued.
+    with contextlib.suppress(Exception):
         store.set_follow_up_status(follow_up_id, "sent")
-    except Exception:  # noqa: BLE001 - never 500 the dashboard
-        pass
     return RedirectResponse(url="/follow-ups", status_code=303)
 
 
@@ -156,10 +156,8 @@ def snooze_follow_up_route(follow_up_id: int,
                            hours: int = Form(24)) -> RedirectResponse:
     """Snooze a follow-up for a number of hours (hidden until then)."""
     store = _memory()
-    try:
+    with contextlib.suppress(Exception):
         store.snooze_follow_up(follow_up_id, hours)
-    except Exception:  # noqa: BLE001
-        pass
     return RedirectResponse(url="/follow-ups", status_code=303)
 
 
@@ -167,10 +165,8 @@ def snooze_follow_up_route(follow_up_id: int,
 def ignore_follow_up(follow_up_id: int) -> RedirectResponse:
     """Dismiss a follow-up (mark it ignored)."""
     store = _memory()
-    try:
+    with contextlib.suppress(Exception):
         store.set_follow_up_status(follow_up_id, "ignored")
-    except Exception:  # noqa: BLE001
-        pass
     return RedirectResponse(url="/follow-ups", status_code=303)
 
 
@@ -184,10 +180,8 @@ def create_task(description: str = Form(...),
     store = _memory()
     text = description.strip()
     if text:
-        try:
+        with contextlib.suppress(Exception):
             store.add_task(text, priority=priority, source="web")
-        except Exception:  # noqa: BLE001
-            pass
     return RedirectResponse(url="/tasks", status_code=303)
 
 
@@ -195,10 +189,8 @@ def create_task(description: str = Form(...),
 def complete_task_route(task_id: int) -> RedirectResponse:
     """Mark a task complete."""
     store = _memory()
-    try:
+    with contextlib.suppress(Exception):
         store.complete_task(task_id)
-    except Exception:  # noqa: BLE001
-        pass
     return RedirectResponse(url="/tasks", status_code=303)
 
 
@@ -267,14 +259,11 @@ def set_autonomy(action: str, level: str = Form(...)) -> RedirectResponse:
     """Change one action's autonomy level, then redirect back to the listing."""
     from core.autonomy import ActionType, AutonomyGate
 
-    try:
+    # Unknown action or unparseable level: leave the setting untouched rather
+    # than 500-ing the dashboard.
+    with contextlib.suppress(Exception):
         gate = AutonomyGate(_settings(), _memory())
         gate.set_level(ActionType(action), level)
-    except (ValueError, KeyError):
-        # Unknown action or unparseable level: leave the setting untouched.
-        pass
-    except Exception:  # noqa: BLE001 - never 500 the dashboard
-        pass
     return RedirectResponse(url="/autonomy", status_code=303)
 
 

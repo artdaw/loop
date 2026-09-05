@@ -21,6 +21,7 @@ from pathlib import Path
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
+from watchdog.observers.api import BaseObserver
 
 from config.settings import Settings, get_settings
 
@@ -132,7 +133,7 @@ class ObsidianWatcher:
                  settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self._on_event = on_event
-        self._observer: Observer | None = None
+        self._observer: BaseObserver | None = None
         self._lock = threading.Lock()
 
         self.vault_path = Path(self.settings.obsidian_vault_path).expanduser()

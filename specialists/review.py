@@ -187,6 +187,9 @@ class WeeklyReview:
 
     def _narrative(self, stats: ReviewStats) -> str:
         """One local-model paragraph. Returns '' when unavailable."""
+        router = self._router
+        if router is None:
+            return ""
         prompt = (
             "Week of "
             f"{stats.week_start.isoformat()} to {stats.week_end.isoformat()}.\n"
@@ -200,13 +203,13 @@ class WeeklyReview:
             "Write the reflection paragraph."
         )
         try:
-            text = self._router.route(prompt, {"source": "work"},
+            text = router.route(prompt, {"source": "work"},
                                       system=_SYSTEM_PROMPT)
             return (text or "").strip()
         except TypeError:
             # Routers whose sync signature takes no `system` kwarg.
             try:
-                return (self._router.route(prompt, {"source": "work"}) or "").strip()
+                return (router.route(prompt, {"source": "work"}) or "").strip()
             except Exception:  # noqa: BLE001
                 logger.exception("Weekly review narrative failed")
                 return ""

@@ -18,9 +18,10 @@ Usage::
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any
 
+from aiohttp import web
 from botbuilder.core import (
     ActivityHandler,
     BotFrameworkAdapter,
@@ -29,7 +30,6 @@ from botbuilder.core import (
 )
 from botbuilder.core.integration import aiohttp_error_middleware
 from botbuilder.schema import Activity, ConversationReference
-from aiohttp import web
 
 from config.settings import Settings, get_settings
 

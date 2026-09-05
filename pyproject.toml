@@ -62,6 +62,19 @@ packages = ["core", "specialists", "integrations", "delivery", "cli", "web", "co
 line-length = 100
 target-version = "py312"
 
+[tool.ruff.lint]
+# Pinned explicitly so `ruff check` means the same thing across ruff releases.
+# BLE is included because the codebase relies on `# noqa: BLE001` to mark the
+# deliberate broad excepts that keep background jobs and the dashboard alive.
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "BLE"]
+# UP042: `str, Enum` is deliberate here. Switching to StrEnum changes what
+# str(member) returns, and these values are persisted and logged.
+ignore = ["UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use fakes and local imports inside test bodies by design.
+"tests/*" = ["E501"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
