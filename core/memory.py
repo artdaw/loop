@@ -12,7 +12,7 @@ dashboard. Semantic vector memory lives in :mod:`core.vector_store` (ChromaDB).
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import (
@@ -32,6 +32,15 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from config.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
+
+
+def utcnow() -> datetime:
+    """Naive UTC timestamp.
+
+    Columns store naive UTC (``datetime.utcnow`` semantics) so existing rows
+    stay comparable; this is the non-deprecated way to produce the same value.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Base(DeclarativeBase):
@@ -81,7 +90,7 @@ class Task(Base):
     priority: Mapped[str] = mapped_column(String(16), default="normal")  # low|normal|high
     status: Mapped[str] = mapped_column(String(16), default="open")      # open|done|orphaned
     source: Mapped[str] = mapped_column(String(32), default="chat")      # chat|wrike|cli
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # --- Phase 4 --------------------------------------------------------- #
     # Project slug this task belongs to, or NULL when unmatched.
@@ -112,7 +121,7 @@ class LLMUsageLog(Base):
     __tablename__ = "llm_usage_log"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     backend: Mapped[str] = mapped_column(String(16))            # local | cloud
     prompt_hash: Mapped[str] = mapped_column(String(64), default="")
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
@@ -128,7 +137,7 @@ class ConversationTurn(Base):
     session_id: Mapped[str] = mapped_column(String(128), index=True)
     role: Mapped[str] = mapped_column(String(16))  # user | assistant | system
     content: Mapped[str] = mapped_column(Text, default="")
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
 class SessionSummary(Base):
@@ -138,7 +147,7 @@ class SessionSummary(Base):
 
     session_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     summary: Mapped[str] = mapped_column(Text, default="")
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class AutonomyAudit(Base):
@@ -153,7 +162,7 @@ class AutonomyAudit(Base):
     __tablename__ = "autonomy_audit"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     action: Mapped[str] = mapped_column(String(32), index=True)
     level: Mapped[str] = mapped_column(String(16), default="approve")
     executed: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -294,7 +303,7 @@ class MemoryStore:
             if task is None:
                 return False
             task.status = "done"
-            task.completed_at = datetime.utcnow()
+            task.completed_at = utcnow()
             session.commit()
             return True
 
@@ -307,7 +316,7 @@ class MemoryStore:
         Snoozed follow-ups whose snooze window has not elapsed are hidden unless
         ``include_snoozed`` is True.
         """
-        now = datetime.utcnow()
+        now = utcnow()
         with self.session() as session:
             rows = session.scalars(
                 select(FollowUp).where(FollowUp.status.in_(["waiting", "drafted"]))
@@ -331,7 +340,7 @@ class MemoryStore:
                 thread_id=thread_id,
                 subject=subject,
                 sender=sender,
-                last_sent_at=last_sent_at or datetime.utcnow(),
+                last_sent_at=last_sent_at or utcnow(),
                 draft_text=draft_text,
                 status=status,
                 triage_score=triage_score,
@@ -366,7 +375,7 @@ class MemoryStore:
             fu = session.get(FollowUp, follow_up_id)
             if fu is None:
                 return False
-            fu.snooze_until = datetime.utcnow() + timedelta(hours=hours)
+            fu.snooze_until = utcnow() + timedelta(hours=hours)
             session.commit()
             return True
 
@@ -400,6 +409,38 @@ class MemoryStore:
     # ------------------------------------------------------------------ #
     # Preference helpers
     # ------------------------------------------------------------------ #
+    # ------------------------------------------------------------------ #
+    # Autonomy audit (Phase 4)
+    # ------------------------------------------------------------------ #
+    def log_autonomy_action(self, *, action: str, level: str, executed: bool,
+                            approved: bool = False, detail: str = "") -> None:
+        """Append a row to the autonomy audit trail.
+
+        Records that an action happened and under what authority — never its
+        content, mirroring the prompt-hash rule for ``llm_usage_log``.
+        """
+        with self.session() as session:
+            session.add(AutonomyAudit(
+                action=action,
+                level=level,
+                executed=executed,
+                approved=approved,
+                detail=detail,
+            ))
+            session.commit()
+
+    def recent_autonomy_audit(self, *, limit: int = 50) -> list[AutonomyAudit]:
+        """Return the most recent audit rows, newest first (detached copies)."""
+        with self.session() as session:
+            rows = list(session.scalars(
+                select(AutonomyAudit)
+                .order_by(AutonomyAudit.timestamp.desc(), AutonomyAudit.id.desc())
+                .limit(limit)
+            ))
+            for row in rows:
+                session.expunge(row)
+            return rows
+
     def get_preference(self, key: str, default: str = "") -> str:
         with self.session() as session:
             pref = session.get(Preference, key)
@@ -484,12 +525,12 @@ class ConversationMemory:
         if last is None:
             return False  # brand-new session, not "expired"
         ttl = timedelta(hours=self.settings.session_ttl_hours)
-        return datetime.utcnow() - last > ttl
+        return utcnow() - last > ttl
 
     def purge_expired(self) -> int:
         """Delete all turns belonging to expired sessions. Returns rows removed."""
         ttl = timedelta(hours=self.settings.session_ttl_hours)
-        cutoff = datetime.utcnow() - ttl
+        cutoff = utcnow() - ttl
         removed = 0
         with self.store.session() as session:
             # Find sessions whose most recent turn is before the cutoff.
@@ -551,7 +592,7 @@ class ConversationMemory:
                 session.add(SessionSummary(session_id=session_id, summary=summary))
             else:
                 existing.summary = summary
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = utcnow()
             session.commit()
         return summary
 
