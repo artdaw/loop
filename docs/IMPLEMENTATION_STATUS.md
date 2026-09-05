@@ -3,7 +3,7 @@
 **Read this file, `IMPLEMENTATION_PLAN.md`, and `ACCEPTANCE_MATRIX.md` to resume without the
 original conversation.** Verify each claim against the worktree before trusting it.
 
-**Branch:** `vnext-implementation` · **Last updated:** 2026-09-05 · **Stage:** A (A1–A5 done, A6 next)
+**Branch:** `vnext-implementation` · **Last updated:** 2026-09-05 · **Stage:** A (A1–A6 done, A7 next)
 
 ---
 
@@ -12,8 +12,8 @@ original conversation.** Verify each claim against the worktree before trusting 
 Planning artefacts exist, the baseline is recorded, and **milestone A1 (foundations) is complete
 and verified**, and **A2 (schema, versioned migrations, legacy upgrade)** is complete and
 verified, and **A3 (intake), A4 (task service) and A5 (triggers/DST/catch-up)** are complete and
-verified. **11 of 184 acceptance scenarios are now verified** with named tests: T02, T03, T11–T15,
-D07–D10. The rest remain pending. The archived Phase 4 system remains green and is the
+verified. **15 of 184 acceptance scenarios are now verified** with named tests: T02, T03, T11–T15,
+D02, D03, D05, D07–D11. The rest remain pending. The archived Phase 4 system remains green and is the
 migration source, not the target.
 
 Do not read the Phase 4 README/spec completion claims as evidence for this target.
@@ -33,7 +33,8 @@ Do not read the Phase 4 README/spec completion claims as evidence for this targe
 | A3 event intake | **done** | `tests/vnext/test_intake.py` 23 passed — T02, T15 |
 | A4 task service | **done** | `tests/vnext/test_tasks.py` 28 passed — T03, T11–T14 |
 | A5 triggers + DST + catch-up | **done** | `tests/vnext/test_triggers.py` 24 passed — D07–D10 |
-| A6 job queue, leases, fencing | **next** | — |
+| A6 job queue, leases, fencing | **done** | `tests/vnext/test_jobs.py` 37 passed — D02, D03, D05, D11 |
+| A7 notifications + outbox | **next** | — |
 | A3–A9 | pending | — |
 | Stages B–E | pending | — |
 
@@ -47,10 +48,10 @@ mypy .              Success: no issues found in 61 source files
 uv.lock             ABSENT
 python              3.12.11
 
-# current, after A5
-pytest              449 passed (288 legacy + 161 vnext), 1 warning
+# current, after A6
+pytest              486 passed (288 legacy + 198 vnext), 1 warning
 ruff check .        All checks passed!
-mypy .              Success: no issues found in 87 source files
+mypy .              Success: no issues found in 90 source files
 uv.lock             present, validated with --locked
 ```
 
@@ -138,23 +139,42 @@ apart — the round-tripped wall clock can, and must be checked first. Second, `
 swallowed every `IntegrityError` as "already claimed", which would have silently hidden a firing
 whose foreign key was wrong; it now confirms the row actually exists before reporting a duplicate.
 
+## A6 delivered
+
+`loop/runtime/jobs.py` — leases, fencing tokens, bounded retry, cancellation. Verifies
+**D02**, **D03**, **D05**, **D11**, plus the restart halves of D01/D14.
+
+**A race bug found by refusing to trust a green test.** The first concurrency test used ten
+threads and passed — *and kept passing with the locking removed*, because thread scheduling rarely
+produces the interleaving that matters. Investigating that revealed `claim()` never checked whether
+its compare-and-set actually matched a row, so two workers could each be handed the same job.
+`apply_claim` now returns `None` on a zero row count, and `claim` is split into
+`select_candidate` / `apply_claim` so the interleaving can be reproduced deterministically. The
+new test was confirmed to fail when the check is disabled. The thread test is retained but
+relabelled: it catches crashes under contention and proves nothing about atomicity.
+
+**Method note for future milestones:** for any test asserting a concurrency, crash or recovery
+invariant, disable the mechanism and confirm the test fails. A test that passes either way is
+worse than no test, because it reads as evidence.
+
 ## Exact next step
 
-Implement **A6 — durable job queue with leases and fencing** (runtime §7):
+Implement **A7 — notifications and the delivery outbox** (runtime §8):
 
-1. `loop/runtime/jobs.py`: claim due work in a short `BEGIN IMMEDIATE` transaction using a
-   compare-and-set lease (default 60s, renew every 20s); `fencing_token` increments per claim.
-2. **D02**: two workers claim the same due job; only the current lease/fencing token may commit.
-3. **D03**: a worker that loses its lease during a model call cannot commit or start a new effect
-   when it returns.
-4. **D11**: cancellation is checked before each effect.
-5. Retry policy: ≤5 attempts, 5s/30s/120s/600s with ≤20% jitter; schema, permission, unsupported
-   and auth failures do not retry (auth pauses that connector).
+1. `loop/runtime/notifications.py`: candidates carry category, subject, occurrence, destination,
+   `not_before`, expiry; the Notification Manager (not each agent) decides delivery, and rechecks
+   current task/routine state immediately before sending.
+2. `loop/runtime/outbox.py`: notification + outbox row commit **transactionally with the result**
+   (**D04** — a crash after the DB change but before dispatch must still send, once).
+3. **D06**: a send that times out after the provider may have accepted becomes `unknown` — never a
+   blind resend and never a false "sent".
+4. **T08**: completing a task cancels its pending firing/notification atomically; an outbox
+   preflight prevents a stale send. **T09**: snooze produces one replacement occurrence and one
+   feedback record. **T10**: dismiss suppresses without completing.
 
-Then **A7** (notifications + outbox, D04–D06, T08–T10), **A8** (loop run, D15–D16), **A9**
-(end-to-end: task → restart → reminder → snooze/done).
+Then **A8** (`loop run`, single leader — D15, D16) and **A9** (end-to-end demo).
 
-Relevant spec sections: runtime §7 (leases, retries, triggers), §8 (delivery truth);
-acceptance §3 (D-series). (runtime §4, interfaces §9, acceptance §1):
+Relevant spec sections: runtime §8 (notification policy, delivery truth), §7 (catch-up);
+acceptance §2 (T08–T10), §3 (D04–D06). (runtime §4, interfaces §9, acceptance §1):
 
 

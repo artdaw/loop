@@ -101,20 +101,66 @@ class LoopError(Exception):
         }
 
 
-def _error(name: str, code: ErrorCode) -> type[LoopError]:
-    return type(name, (LoopError,), {"code": code})
+class InvalidInput(LoopError):
+    """Malformed or unusable input."""
+    code = ErrorCode.INVALID_INPUT
 
 
-InvalidInput = _error("InvalidInput", ErrorCode.INVALID_INPUT)
-NeedsClarification = _error("NeedsClarification", ErrorCode.NEEDS_CLARIFICATION)
-Unavailable = _error("Unavailable", ErrorCode.UNAVAILABLE)
-AuthRequired = _error("AuthRequired", ErrorCode.AUTH_REQUIRED)
-PrivacyBlocked = _error("PrivacyBlocked", ErrorCode.PRIVACY_BLOCKED)
-ApprovalRequired = _error("ApprovalRequired", ErrorCode.APPROVAL_REQUIRED)
-Conflict = _error("Conflict", ErrorCode.CONFLICT)
-RateLimited = _error("RateLimited", ErrorCode.RATE_LIMITED)
-Timeout = _error("Timeout", ErrorCode.TIMEOUT)
-BudgetExhausted = _error("BudgetExhausted", ErrorCode.BUDGET_EXHAUSTED)
-ValidationFailed = _error("ValidationFailed", ErrorCode.VALIDATION_FAILED)
-UnknownEffect = _error("UnknownEffect", ErrorCode.UNKNOWN_EFFECT)
-InternalError = _error("InternalError", ErrorCode.INTERNAL_ERROR)
+class NeedsClarification(LoopError):
+    """A blocking detail is missing; the work is retained meanwhile."""
+    code = ErrorCode.NEEDS_CLARIFICATION
+
+
+class Unavailable(LoopError):
+    """A required service or connector is not reachable right now."""
+    code = ErrorCode.UNAVAILABLE
+
+
+class AuthRequired(LoopError):
+    """Credentials or pairing are missing or rejected."""
+    code = ErrorCode.AUTH_REQUIRED
+
+
+class PrivacyBlocked(LoopError):
+    """The privacy gate forbids this route or destination."""
+    code = ErrorCode.PRIVACY_BLOCKED
+
+
+class ApprovalRequired(LoopError):
+    """An unexpired, matching approval is needed before executing."""
+    code = ErrorCode.APPROVAL_REQUIRED
+
+
+class Conflict(LoopError):
+    """A version, uniqueness or concurrency conflict. Never last-write-wins."""
+    code = ErrorCode.CONFLICT
+
+
+class RateLimited(LoopError):
+    """A provider asked us to slow down."""
+    code = ErrorCode.RATE_LIMITED
+
+
+class Timeout(LoopError):
+    """A deadline elapsed before the work completed."""
+    code = ErrorCode.TIMEOUT
+
+
+class BudgetExhausted(LoopError):
+    """The request's model/tool/time budget is spent; results are partial."""
+    code = ErrorCode.BUDGET_EXHAUSTED
+
+
+class ValidationFailed(LoopError):
+    """Schema or reference validation rejected the payload."""
+    code = ErrorCode.VALIDATION_FAILED
+
+
+class UnknownEffect(LoopError):
+    """An external effect may or may not have happened; never assume either."""
+    code = ErrorCode.UNKNOWN_EFFECT
+
+
+class InternalError(LoopError):
+    """An unexpected failure."""
+    code = ErrorCode.INTERNAL_ERROR

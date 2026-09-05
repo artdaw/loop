@@ -88,8 +88,8 @@ prompt_secret ANTHROPIC_API_KEY  "cloud fallback LLM; leave blank to stay fully 
 prompt_secret OBSIDIAN_VAULT_PATH "absolute path to your Obsidian vault"
 
 # --- 3. Start the stack ----------------------------------------------------
-info "Starting the Loop stack (ollama + chromadb + app)…"
-${COMPOSE} up -d
+info "Building the app with uv and starting the Loop stack (ollama + chromadb + app)…"
+${COMPOSE} up -d --build
 
 # --- 4. Pull Ollama models -------------------------------------------------
 # The ollama-init service pulls models on first `up`, but we pull explicitly so

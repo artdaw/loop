@@ -10,8 +10,8 @@ A green test count is not coverage: a row is `verified` only when its named test
 
 | Stage | Section | Scenarios | verified | implemented | pending |
 |---|---|---:|---:|---:|---:|
-| A | 2. Commitments and everyday interaction | 15 | 6 | 0 | 9 |
-| A | 3. Time, durability and delivery | 17 | 4 | 0 | 13 |
+| A | 2. Commitments and everyday interaction | 15 | 7 | 0 | 8 |
+| A | 3. Time, durability and delivery | 17 | 8 | 0 | 9 |
 | B | 4. Knowledge and vault fidelity | 32 | 0 | 0 | 32 |
 | C | 5. Team coordination, privacy and control | 23 | 0 | 0 | 23 |
 | D | 6. Proactivity and learning | 21 | 0 | 0 | 21 |
@@ -19,7 +19,7 @@ A green test count is not coverage: a row is `verified` only when its named test
 | D | 8. Weather from multiple sources | 24 | 0 | 0 | 24 |
 | C | 9. Capability extensibility | 14 | 0 | 0 | 14 |
 | E | 10. Build, migration, operations and release | 14 | 0 | 0 | 14 |
-| — | **Total** | **184** | **12** | **0** | **172** |
+| — | **Total** | **184** | **15** | **0** | **169** |
 
 
 ## 2. Commitments and everyday interaction
@@ -51,16 +51,16 @@ Stage **A** · planned milestones **A5–A8**
 | ID | Given / action | Required result | Milestone | Implementation | Test | Status |
 |---|---|---|---|---|---|---|
 | D01 | Kill/restart after storing task+trigger | Reminder still becomes due and is processed once | A5–A8 | — | — | pending |
-| D02 | Two workers claim the same due job concurrently | One current lease/fencing token can execute and commit | A5–A8 | — | — | pending |
-| D03 | Worker loses lease during model call, then returns | Stale worker cannot commit or start a new effect | A5–A8 | — | — | pending |
+| D02 | Two workers claim the same due job concurrently | One current lease/fencing token can execute and commit | A6 | `loop/runtime/jobs.py` | `test_jobs.py::test_d02_a_claim_that_loses_the_race_returns_none` | verified |
+| D03 | Worker loses lease during model call, then returns | Stale worker cannot commit or start a new effect | A6 | `loop/runtime/jobs.py` | `test_jobs.py::test_d03_*` | verified |
 | D04 | Crash after DB state change, before outbox dispatch | Pending notification survives and sends under same identity | A5–A8 | — | — | pending |
-| D05 | Provider definitely rejects before sending, then recovers | Bounded retry and one acknowledged effect | A5–A8 | — | — | pending |
+| D05 | Provider definitely rejects before sending, then recovers | Bounded retry and one acknowledged effect | A6 | `loop/runtime/jobs.py` | `test_jobs.py::test_d05_*` | verified |
 | D06 | Telegram accepts send but client times out without receipt | unknown delivery state; no blind automatic resend or false sent claim | A5–A8 | — | — | pending |
 | D07 | Local schedule 02:30 on 2026-03-29 Europe/Berlin | Resolve to 03:30 local / 01:30Z; record gap policy | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d07_*` | verified |
 | D08 | Local schedule 02:30 on 2026-10-25 Europe/Berlin | One firing at fold=0 / 00:30Z; no second 02:30 reminder | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d08_*` | verified |
 | D09 | Host resumes 2 hours after explicit reminder | One delayed reminder within 24-hour catch-up window | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d09_*` | verified |
 | D10 | Host resumes after 5 missed weather mornings | Skip stale runs; at most one timely current result | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d10_*` | verified |
-| D11 | Cancel task while queued for delivery | Pre-send current-state check cancels it; an already in-flight effect is reported hone… | A5–A8 | — | — | pending |
+| D11 | Cancel task while queued for delivery | Pre-send current-state check cancels it; an already in-flight effect is reported hone… | A6 | `loop/runtime/jobs.py` | `test_jobs.py::test_d11_*` | verified |
 | D12 | Change timezone of floating routine | Recompute future occurrences only; explicit-zone task unchanged | A5–A8 | — | — | pending |
 | D13 | Expired approval or changed target version | No execution; actionable stale/conflict response | A5–A8 | — | — | pending |
 | D14 | SIGTERM then forced stop during operation | Recovery manifest and pending work retained; fresh process can reconcile | A5–A8 | — | — | pending |
