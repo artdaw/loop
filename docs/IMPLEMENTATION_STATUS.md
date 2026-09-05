@@ -3,7 +3,7 @@
 **Read this file, `IMPLEMENTATION_PLAN.md`, and `ACCEPTANCE_MATRIX.md` to resume without the
 original conversation.** Verify each claim against the worktree before trusting it.
 
-**Branch:** `vnext-implementation` · **Last updated:** 2026-09-05 · **Stage:** A (A1–A2 done, A3 next)
+**Branch:** `vnext-implementation` · **Last updated:** 2026-09-05 · **Stage:** A (A1–A5 done, A6 next)
 
 ---
 
@@ -11,9 +11,9 @@ original conversation.** Verify each claim against the worktree before trusting 
 
 Planning artefacts exist, the baseline is recorded, and **milestone A1 (foundations) is complete
 and verified**, and **A2 (schema, versioned migrations, legacy upgrade)** is complete and
-verified. 0 of 184 acceptance scenarios are verified — A1/A2 build the primitives and storage the
-scenarios rest on, and enforce several of their preconditions at the database level, but a
-scenario is only marked verified once its own behaviour is asserted end to end. The archived Phase 4 system remains green and is the
+verified, and **A3 (intake), A4 (task service) and A5 (triggers/DST/catch-up)** are complete and
+verified. **11 of 184 acceptance scenarios are now verified** with named tests: T02, T03, T11–T15,
+D07–D10. The rest remain pending. The archived Phase 4 system remains green and is the
 migration source, not the target.
 
 Do not read the Phase 4 README/spec completion claims as evidence for this target.
@@ -30,7 +30,10 @@ Do not read the Phase 4 README/spec completion claims as evidence for this targe
 | `uv.lock` generated | done | `uv lock` → 171 packages; `uv sync --locked --extra dev` succeeds |
 | A1 foundations | **done** | `pytest tests/vnext` 59 passed; full suite 347 passed; ruff + mypy clean |
 | A2 schema + migrations | **done** | `pytest tests/vnext/test_schema_and_migration.py` 25 passed; full suite 372 |
-| A3 event intake | **next** | — |
+| A3 event intake | **done** | `tests/vnext/test_intake.py` 23 passed — T02, T15 |
+| A4 task service | **done** | `tests/vnext/test_tasks.py` 28 passed — T03, T11–T14 |
+| A5 triggers + DST + catch-up | **done** | `tests/vnext/test_triggers.py` 24 passed — D07–D10 |
+| A6 job queue, leases, fencing | **next** | — |
 | A3–A9 | pending | — |
 | Stages B–E | pending | — |
 
@@ -44,10 +47,10 @@ mypy .              Success: no issues found in 61 source files
 uv.lock             ABSENT
 python              3.12.11
 
-# current, after A2
-pytest              372 passed (288 legacy + 84 vnext), 1 warning
+# current, after A5
+pytest              449 passed (288 legacy + 161 vnext), 1 warning
 ruff check .        All checks passed!
-mypy .              Success: no issues found in 80 source files
+mypy .              Success: no issues found in 87 source files
 uv.lock             present, validated with --locked
 ```
 
@@ -121,21 +124,37 @@ stays a date and never becomes a midnight `due_at`; migrated rows default to loc
 `autonomy.email_send=act` is retained at the more restrictive `approve`; **no triggers are created
 from legacy rows**, so no old reminder reactivates.
 
+## A3–A5 delivered
+
+| File | Contract | Scenarios verified |
+|---|---|---|
+| `loop/runtime/intake.py` | runtime §2/§5, interfaces §2 | **T02** replay, **T15** key-reuse conflict |
+| `loop/services/tasks.py` | runtime §6 lifecycle | **T03**, **T11**, **T12**, **T13**, **T14** |
+| `loop/runtime/triggers.py` | runtime §6–§7 time | **D07**, **D08**, **D09**, **D10** |
+
+**Two real bugs found by the DST tests.** First, a spring *gap* and an autumn *fold* both make
+`fold=0`/`fold=1` report different UTC offsets, so the offset comparison alone cannot tell them
+apart — the round-tripped wall clock can, and must be checked first. Second, `claim_occurrence`
+swallowed every `IntegrityError` as "already claimed", which would have silently hidden a firing
+whose foreign key was wrong; it now confirms the row actually exists before reporting a duplicate.
+
 ## Exact next step
 
-Implement **A3 — authenticated event intake** (runtime §2, §5; interfaces §2):
+Implement **A6 — durable job queue with leases and fencing** (runtime §7):
 
-1. `loop/runtime/intake.py`: accept → verify owner identity (both chat *and* sender ID for
-   Telegram) → build the event envelope → commit **before** acknowledging.
-2. Dedupe on `UNIQUE(origin, idempotency_key)`; a replayed update returns the same accepted
-   result with one acknowledgement (**T02**).
-3. Idempotency key reused with a *different* body returns HTTP 409 with no second effect
-   (**T15**).
-4. An unbound instance must not accept the first arbitrary `/start` as its owner (interfaces §2).
+1. `loop/runtime/jobs.py`: claim due work in a short `BEGIN IMMEDIATE` transaction using a
+   compare-and-set lease (default 60s, renew every 20s); `fencing_token` increments per claim.
+2. **D02**: two workers claim the same due job; only the current lease/fencing token may commit.
+3. **D03**: a worker that loses its lease during a model call cannot commit or start a new effect
+   when it returns.
+4. **D11**: cancellation is checked before each effect.
+5. Retry policy: ≤5 attempts, 5s/30s/120s/600s with ≤20% jitter; schema, permission, unsupported
+   and auth failures do not retry (auth pauses that connector).
 
-Then **A4** (task service: T01, T03, T06, T11, T12, T14) against the same events.
+Then **A7** (notifications + outbox, D04–D06, T08–T10), **A8** (loop run, D15–D16), **A9**
+(end-to-end: task → restart → reminder → snooze/done).
 
-Relevant spec sections: runtime §2 (cycle), §5 (event envelope/kinds); interfaces §1–2
-(interaction contract, Telegram identity); acceptance §2 (T-series). (runtime §4, interfaces §9, acceptance §1):
+Relevant spec sections: runtime §7 (leases, retries, triggers), §8 (delivery truth);
+acceptance §3 (D-series). (runtime §4, interfaces §9, acceptance §1):
 
 

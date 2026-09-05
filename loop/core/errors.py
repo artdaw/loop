@@ -49,6 +49,26 @@ EXIT_CODES: dict[ErrorCode, int] = {
 }
 
 
+#: HTTP status per code (interfaces §4). The API and CLI must agree on what a
+#: failure means, so both mappings live beside the taxonomy rather than being
+#: re-derived per interface.
+HTTP_STATUS: dict[ErrorCode, int] = {
+    ErrorCode.INVALID_INPUT: 400,
+    ErrorCode.VALIDATION_FAILED: 422,
+    ErrorCode.NEEDS_CLARIFICATION: 400,
+    ErrorCode.AUTH_REQUIRED: 401,
+    ErrorCode.PRIVACY_BLOCKED: 403,
+    ErrorCode.APPROVAL_REQUIRED: 403,
+    ErrorCode.CONFLICT: 409,
+    ErrorCode.RATE_LIMITED: 429,
+    ErrorCode.TIMEOUT: 504,
+    ErrorCode.UNAVAILABLE: 503,
+    ErrorCode.BUDGET_EXHAUSTED: 503,
+    ErrorCode.UNKNOWN_EFFECT: 500,
+    ErrorCode.INTERNAL_ERROR: 500,
+}
+
+
 class LoopError(Exception):
     """Base class carrying a structured code and safe details."""
 
@@ -64,6 +84,10 @@ class LoopError(Exception):
     @property
     def exit_code(self) -> int:
         return EXIT_CODES.get(self.code, 1)
+
+    @property
+    def http_status(self) -> int:
+        return HTTP_STATUS.get(self.code, 500)
 
     def to_envelope(self, request_id: str) -> dict[str, Any]:
         """The HTTP error envelope from interfaces §4."""

@@ -10,8 +10,8 @@ A green test count is not coverage: a row is `verified` only when its named test
 
 | Stage | Section | Scenarios | verified | implemented | pending |
 |---|---|---:|---:|---:|---:|
-| A | 2. Commitments and everyday interaction | 15 | 0 | 0 | 15 |
-| A | 3. Time, durability and delivery | 17 | 0 | 0 | 17 |
+| A | 2. Commitments and everyday interaction | 15 | 6 | 0 | 9 |
+| A | 3. Time, durability and delivery | 17 | 4 | 0 | 13 |
 | B | 4. Knowledge and vault fidelity | 32 | 0 | 0 | 32 |
 | C | 5. Team coordination, privacy and control | 23 | 0 | 0 | 23 |
 | D | 6. Proactivity and learning | 21 | 0 | 0 | 21 |
@@ -19,7 +19,7 @@ A green test count is not coverage: a row is `verified` only when its named test
 | D | 8. Weather from multiple sources | 24 | 0 | 0 | 24 |
 | C | 9. Capability extensibility | 14 | 0 | 0 | 14 |
 | E | 10. Build, migration, operations and release | 14 | 0 | 0 | 14 |
-| — | **Total** | **184** | **0** | **0** | **184** |
+| — | **Total** | **184** | **12** | **0** | **172** |
 
 
 ## 2. Commitments and everyday interaction
@@ -29,8 +29,8 @@ Stage **A** · planned milestones **A3–A4, A7**
 | ID | Given / action | Required result | Milestone | Implementation | Test | Status |
 |---|---|---|---|---|---|---|
 | T01 | At 2026-09-05 09:00 Europe/Berlin, “Remind me tomorrow at 9 to call the repai… | One ready task, one trigger for 2026-09-06T07:00:00Z; reply includes local date/time… | A3–A4 | — | — | pending |
-| T02 | Replay the same Telegram update 3 times | Same accepted result, one task/trigger, one user acknowledgement occurrence | A3–A4 | — | — | pending |
-| T03 | “Find a better approach to insurance” without timing | Task retained without invented due date; no unrequested timer | A3–A4 | — | — | pending |
+| T02 | Replay the same Telegram update 3 times | Same accepted result, one task/trigger, one user acknowledgement occurrence | A3 | `loop/runtime/intake.py` | `test_intake.py::test_t02_*` | verified |
+| T03 | “Find a better approach to insurance” without timing | Task retained without invented due date; no unrequested timer | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t03_*` | verified |
 | T04 | “Remind me later to call” | Task saved, plan needs_input, one timing question, no false scheduled claim | A3–A4 | — | — | pending |
 | T05 | Answer T04 with “tomorrow at 10” | Same task gains trigger; clarification resolves; no duplicate task | A3–A4 | — | — | pending |
 | T06 | “Remember to call” versus “remember that production takes six weeks” | First is task intent; second is exact knowledge capture; unresolved reminder time sta… | A3–A4 | — | — | pending |
@@ -38,11 +38,11 @@ Stage **A** · planned milestones **A3–A4, A7**
 | T08 | Complete a task before its reminder sends | Task done and pending firing/notification cancelled atomically; outbox preflight prev… | A3–A4 | — | — | pending |
 | T09 | Snooze a delivered reminder by 1 hour, replay button | One replacement occurrence at requested time; one feedback record; task remains open | A3–A4 | — | — | pending |
 | T10 | Dismiss a reminder | Notification suppressed, task not completed | A3–A4 | — | — | pending |
-| T11 | Reopen completed task | Explicit versioned ready state; old reminders do not reactivate implicitly | A3–A4 | — | — | pending |
-| T12 | Extract a meeting action owned by another attendee | Remains that attendee's action; never silently assigned to owner or messaged external… | A3–A4 | — | — | pending |
-| T13 | Unsupported execution request, e.g. booking through unavailable adapter | Task preserved; missing capability and next step visible; no success claim | A3–A4 | — | — | pending |
-| T14 | Conflicting PATCH calls with same expected_version | First commits; second returns conflict without overwriting | A3–A4 | — | — | pending |
-| T15 | Idempotency key reused with a different body | HTTP 409 and no second effect | A3–A4 | — | — | pending |
+| T11 | Reopen completed task | Explicit versioned ready state; old reminders do not reactivate implicitly | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t11_*` | verified |
+| T12 | Extract a meeting action owned by another attendee | Remains that attendee's action; never silently assigned to owner or messaged external… | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t12_*` | verified |
+| T13 | Unsupported execution request, e.g. booking through unavailable adapter | Task preserved; missing capability and next step visible; no success claim | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t13_*` | verified |
+| T14 | Conflicting PATCH calls with same expected_version | First commits; second returns conflict without overwriting | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t14_*` | verified |
+| T15 | Idempotency key reused with a different body | HTTP 409 and no second effect | A3 | `loop/runtime/intake.py` | `test_intake.py::test_t15_*` | verified |
 
 ## 3. Time, durability and delivery
 
@@ -56,10 +56,10 @@ Stage **A** · planned milestones **A5–A8**
 | D04 | Crash after DB state change, before outbox dispatch | Pending notification survives and sends under same identity | A5–A8 | — | — | pending |
 | D05 | Provider definitely rejects before sending, then recovers | Bounded retry and one acknowledged effect | A5–A8 | — | — | pending |
 | D06 | Telegram accepts send but client times out without receipt | unknown delivery state; no blind automatic resend or false sent claim | A5–A8 | — | — | pending |
-| D07 | Local schedule 02:30 on 2026-03-29 Europe/Berlin | Resolve to 03:30 local / 01:30Z; record gap policy | A5–A8 | — | — | pending |
-| D08 | Local schedule 02:30 on 2026-10-25 Europe/Berlin | One firing at fold=0 / 00:30Z; no second 02:30 reminder | A5–A8 | — | — | pending |
-| D09 | Host resumes 2 hours after explicit reminder | One delayed reminder within 24-hour catch-up window | A5–A8 | — | — | pending |
-| D10 | Host resumes after 5 missed weather mornings | Skip stale runs; at most one timely current result | A5–A8 | — | — | pending |
+| D07 | Local schedule 02:30 on 2026-03-29 Europe/Berlin | Resolve to 03:30 local / 01:30Z; record gap policy | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d07_*` | verified |
+| D08 | Local schedule 02:30 on 2026-10-25 Europe/Berlin | One firing at fold=0 / 00:30Z; no second 02:30 reminder | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d08_*` | verified |
+| D09 | Host resumes 2 hours after explicit reminder | One delayed reminder within 24-hour catch-up window | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d09_*` | verified |
+| D10 | Host resumes after 5 missed weather mornings | Skip stale runs; at most one timely current result | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d10_*` | verified |
 | D11 | Cancel task while queued for delivery | Pre-send current-state check cancels it; an already in-flight effect is reported hone… | A5–A8 | — | — | pending |
 | D12 | Change timezone of floating routine | Recompute future occurrences only; explicit-zone task unchanged | A5–A8 | — | — | pending |
 | D13 | Expired approval or changed target version | No execution; actionable stale/conflict response | A5–A8 | — | — | pending |

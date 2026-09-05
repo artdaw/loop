@@ -146,3 +146,14 @@ def test_every_taxonomy_code_has_an_exit_code():
     from loop.core.errors import EXIT_CODES
 
     assert set(EXIT_CODES) == set(ErrorCode)
+
+
+def test_every_taxonomy_code_has_an_http_status():
+    from loop.core.errors import HTTP_STATUS
+
+    assert set(HTTP_STATUS) == set(ErrorCode)
+
+
+def test_conflict_is_http_409():
+    """T15 requires exactly this status."""
+    assert Conflict("clash").http_status == 409
