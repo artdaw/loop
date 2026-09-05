@@ -224,6 +224,42 @@ def autonomy_set(
             )
 
 
+@app.command()
+def sync(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", "-n",
+        help="Report what would change without writing anything.",
+    ),
+) -> None:
+    """Sync tasks with Wrike (remote wins; locally-captured tasks are pushed)."""
+    import asyncio
+
+    from core.wrike_sync import WrikeSync
+
+    try:
+        report = asyncio.run(WrikeSync(memory=_store()).sync(dry_run=dry_run))
+    except Exception as exc:  # noqa: BLE001 - surface a friendly message
+        typer.secho(f"Sync failed: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+
+    if not report.configured:
+        typer.secho(report.summary(), fg=typer.colors.YELLOW)
+        raise typer.Exit(code=0)
+
+    typer.echo(report.summary())
+    for error in report.errors:
+        typer.secho(f"  ! {error}", fg=typer.colors.RED)
+
+
+def _store():
+    """Build a bootstrapped MemoryStore for the CLI."""
+    from core.memory import MemoryStore
+
+    store = MemoryStore()
+    store.bootstrap()
+    return store
+
+
 def main() -> None:
     """Console-script entry point (see pyproject [project.scripts])."""
     app()

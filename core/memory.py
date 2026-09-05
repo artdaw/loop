@@ -439,6 +439,71 @@ class MemoryStore:
             session.commit()
             return True
 
+    def set_task_status(self, task_id: int, status: str) -> bool:
+        """Set a task's status directly (used by Wrike sync for 'orphaned')."""
+        with self.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                return False
+            task.status = status
+            session.commit()
+            return True
+
+    def update_task_fields(self, task_id: int, *, description: str | None = None,
+                           due_date: date | None = None,
+                           priority: str | None = None) -> bool:
+        """Update mutable task fields, skipping any left as ``None``."""
+        with self.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                return False
+            if description is not None:
+                task.description = description
+            if due_date is not None or description is not None:
+                # due_date is nullable upstream, so an explicit None from Wrike
+                # is applied alongside a title change rather than ignored.
+                task.due_date = due_date
+            if priority is not None:
+                task.priority = priority
+            session.commit()
+            return True
+
+    def link_wrike(self, task_id: int, wrike_id: str) -> bool:
+        """Record the Wrike id for a locally-created task."""
+        with self.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                return False
+            task.wrike_id = wrike_id
+            task.last_synced_at = utcnow()
+            session.commit()
+            return True
+
+    def mark_task_synced(self, task_id: int,
+                         remote_updated_at: datetime | None = None) -> bool:
+        """Stamp a task as reconciled with Wrike."""
+        with self.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                return False
+            task.last_synced_at = utcnow()
+            if remote_updated_at is not None:
+                task.remote_updated_at = remote_updated_at
+            session.commit()
+            return True
+
+    def list_tasks_for_sync(self) -> list[Task]:
+        """Every task regardless of status (detached copies).
+
+        Sync needs completed and orphaned rows too, so this deliberately does
+        not filter on ``status`` the way the other listing helpers do.
+        """
+        with self.session() as session:
+            rows = list(session.scalars(select(Task).order_by(Task.id)))
+            for row in rows:
+                session.expunge(row)
+            return rows
+
     def known_task_projects(self) -> list[str]:
         """Return the distinct project slugs currently in use, sorted."""
         with self.session() as session:
