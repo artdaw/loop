@@ -278,6 +278,44 @@ def review(
         raise typer.Exit(code=1) from exc
 
 
+@app.command("note-from-audio")
+def note_from_audio(
+    audio: str = typer.Argument(..., help="Path to an audio file (ogg, mp3, wav, m4a)."),
+    write: bool = typer.Option(True, "--write/--dry-run",
+                               help="Write the note to the vault, or just print it."),
+) -> None:
+    """Transcribe a voice memo locally and file it as an Obsidian note.
+
+    Audio is processed entirely on this machine: transcription runs a local
+    Whisper model and the note is formatted by the local LLM only. Nothing is
+    sent to a cloud provider.
+    """
+    from pathlib import Path
+
+    from specialists.knowledge import KnowledgeSpecialist
+
+    path = Path(audio).expanduser()
+    if not path.exists():
+        typer.secho(f"No such file: {path}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    try:
+        draft = KnowledgeSpecialist().note_from_audio(path, source="cli", write=write)
+    except RuntimeError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:  # noqa: BLE001 - surface a friendly message
+        typer.secho(f"Could not process the recording: {exc}", fg=typer.colors.RED)
+        typer.echo("Is Ollama running? Voice notes are local-only, so there is no "
+                   "cloud fallback by design.")
+        raise typer.Exit(code=1) from exc
+
+    if write:
+        typer.secho(f"Filed note: {draft.title}", fg=typer.colors.GREEN)
+    else:
+        typer.echo(draft.to_markdown())
+
+
 def _store():
     """Build a bootstrapped MemoryStore for the CLI."""
     from core.memory import MemoryStore
