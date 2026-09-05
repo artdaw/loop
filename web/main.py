@@ -12,6 +12,9 @@ upgrades the read-only dashboard into an interactive one:
     POST /tasks                    Create a task
     POST /tasks/{id}/complete      Mark a task complete
     GET  /search?q=                Semantic search results (ChromaDB)
+    GET  /autonomy                 Autonomy levels per action (Phase 4)
+    POST /autonomy/{action}        Change one action's autonomy level
+    GET  /metrics                  Local-vs-cloud, task, and follow-up metrics
 
 Styling is Tailwind (CDN); search uses HTMX and the action buttons post back
 to the server — no JS framework.
@@ -35,13 +38,24 @@ from core.memory import MemoryStore
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
-app = FastAPI(title="Loop", version="0.2.0")
+app = FastAPI(title="Loop", version="0.3.0")
+
+# Test seam: when set, every request uses this store/settings instead of
+# building one from the ambient environment. Production never sets these.
+_store_override: MemoryStore | None = None
+_settings_override = None
 
 
 def _memory() -> MemoryStore:
+    if _store_override is not None:
+        return _store_override
     store = MemoryStore()
     store.bootstrap()
     return store
+
+
+def _settings():
+    return _settings_override or get_settings()
 
 
 @app.get("/health")
@@ -200,3 +214,57 @@ def search(request: Request, q: str = "") -> HTMLResponse:
         template,
         {"query": q, "results": results, "error": error, "active": "search"},
     )
+
+
+# --------------------------------------------------------------------------- #
+# Autonomy (Phase 4)
+# --------------------------------------------------------------------------- #
+@app.get("/autonomy", response_class=HTMLResponse)
+def autonomy_page(request: Request) -> HTMLResponse:
+    """Show the autonomy level for every action type."""
+    from core.autonomy import AutonomyGate, AutonomyLevel
+
+    gate = AutonomyGate(_settings(), _memory())
+    rows = []
+    for action, decision in gate.levels_table().items():
+        rows.append({
+            "action": action.value,
+            "level": decision.level.label,
+            "ceiling": gate.ceiling_for(action).label,
+            "capped": decision.capped,
+            "reason": decision.reason,
+            "requires_approval": decision.requires_approval,
+            "allowed": decision.allowed,
+        })
+
+    try:
+        audit = gate.recent_audit(limit=15)
+    except Exception:  # noqa: BLE001 - never 500 the dashboard
+        audit = []
+
+    return templates.TemplateResponse(
+        request,
+        "autonomy.html",
+        {
+            "rows": rows,
+            "levels": [level.label for level in AutonomyLevel],
+            "audit": audit,
+            "active": "autonomy",
+        },
+    )
+
+
+@app.post("/autonomy/{action}")
+def set_autonomy(action: str, level: str = Form(...)) -> RedirectResponse:
+    """Change one action's autonomy level, then redirect back to the listing."""
+    from core.autonomy import ActionType, AutonomyGate
+
+    try:
+        gate = AutonomyGate(_settings(), _memory())
+        gate.set_level(ActionType(action), level)
+    except (ValueError, KeyError):
+        # Unknown action or unparseable level: leave the setting untouched.
+        pass
+    except Exception:  # noqa: BLE001 - never 500 the dashboard
+        pass
+    return RedirectResponse(url="/autonomy", status_code=303)

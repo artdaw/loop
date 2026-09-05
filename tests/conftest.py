@@ -42,3 +42,15 @@ def memory_store(settings: Settings) -> MemoryStore:
     store = MemoryStore(settings)
     store.bootstrap()
     return store
+
+
+@pytest.fixture
+def web_client(memory_store, settings, monkeypatch):
+    """A FastAPI TestClient wired to the temp MemoryStore."""
+    from fastapi.testclient import TestClient
+
+    from web import main as web_main
+
+    monkeypatch.setattr(web_main, "_store_override", memory_store, raising=False)
+    monkeypatch.setattr(web_main, "_settings_override", settings, raising=False)
+    return TestClient(web_main.app)

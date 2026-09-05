@@ -11,6 +11,7 @@ Run with:
 Phase 1 commands: status, briefing, snooze.
 Phase 2 command:  find (semantic search).
 Phase 3 command:  ask  (free-form query across all sources).
+Phase 4 commands: autonomy, autonomy-set, review, sync, metrics, note-from-audio.
 All commands are wired as stubs so the CLI runs end-to-end today.
 """
 
@@ -151,6 +152,76 @@ def ask(
         typer.secho(f"Ask failed: {exc}", fg=typer.colors.RED)
         typer.echo("Is Ollama running (for local inference and embeddings)?")
         raise typer.Exit(code=1) from exc
+
+
+# --------------------------------------------------------------------------- #
+# Phase 4 commands
+# --------------------------------------------------------------------------- #
+@app.command()
+def autonomy() -> None:
+    """Show how autonomously Loop may act, per action type."""
+    from core.autonomy import AutonomyGate
+
+    gate = AutonomyGate()
+    typer.echo("Autonomy levels (observe < suggest < approve < act)\n")
+    typer.echo(f"  {'ACTION':<16} {'LEVEL':<10} {'CEILING':<10} STATUS")
+    for action, decision in gate.levels_table().items():
+        if decision.capped:
+            status = "capped by ceiling"
+            colour = typer.colors.YELLOW
+        elif not decision.allowed:
+            status = "records only"
+            colour = typer.colors.BRIGHT_BLACK
+        elif decision.requires_approval:
+            status = "needs approval"
+            colour = typer.colors.BLUE
+        else:
+            status = "autonomous"
+            colour = typer.colors.GREEN
+        typer.secho(
+            f"  {action.value:<16} {decision.level.label:<10} "
+            f"{gate.ceiling_for(action).label:<10} {status}",
+            fg=colour,
+        )
+    typer.echo("\nChange one with:  loop autonomy-set <action> <level>")
+
+
+@app.command("autonomy-set")
+def autonomy_set(
+    action: str = typer.Argument(..., help="Action type, or 'default' for the global level."),
+    level: str = typer.Argument(..., help="observe | suggest | approve | act"),
+) -> None:
+    """Set the autonomy level for one action (or the global default)."""
+    from core.autonomy import ActionType, AutonomyGate
+
+    gate = AutonomyGate()
+    target = None
+    if action.lower() != "default":
+        try:
+            target = ActionType(action.lower())
+        except ValueError:
+            valid = ", ".join(a.value for a in ActionType)
+            typer.secho(f"Unknown action {action!r}. Valid: {valid}, default",
+                        fg=typer.colors.RED)
+            raise typer.Exit(code=1) from None
+    try:
+        gate.set_level(target, level)
+    except ValueError:
+        typer.secho(f"Unknown level {level!r}. Valid: observe, suggest, approve, act",
+                    fg=typer.colors.RED)
+        raise typer.Exit(code=1) from None
+
+    name = "default" if target is None else target.value
+    typer.secho(f"Set {name} autonomy to {level.lower()}.", fg=typer.colors.GREEN)
+
+    if target is not None:
+        decision = gate.decide(target)
+        if decision.capped:
+            typer.secho(
+                f"Note: capped at {decision.level.label} by the {name} ceiling. "
+                f"Raise MAX_AUTONOMY_EMAIL_SEND in .env to lift it.",
+                fg=typer.colors.YELLOW,
+            )
 
 
 def main() -> None:

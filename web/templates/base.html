@@ -12,10 +12,10 @@
     <header class="mb-8">
       <div class="flex items-center justify-between">
         <a href="/" class="text-2xl font-bold text-slate-900">🔁 Loop</a>
-        <span class="text-sm text-slate-500">local-first · read-only dashboard</span>
+        <span class="text-sm text-slate-500">local-first · your data stays here</span>
       </div>
       <nav class="mt-4 flex gap-1 text-sm">
-        {% set tabs = [("home", "/", "Today"), ("follow-ups", "/follow-ups", "Follow-ups"), ("tasks", "/tasks", "Tasks"), ("search", "/search", "Search")] %}
+        {% set tabs = [("home", "/", "Today"), ("follow-ups", "/follow-ups", "Follow-ups"), ("tasks", "/tasks", "Tasks"), ("search", "/search", "Search"), ("autonomy", "/autonomy", "Autonomy"), ("metrics", "/metrics", "Metrics")] %}
         {% for key, href, label in tabs %}
         <a href="{{ href }}"
            class="px-3 py-1.5 rounded-md {% if active == key %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-200{% endif %}">
