@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Loop — Follow-ups{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-6">Email follow-ups</h1>
+
+{% if follow_ups %}
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 divide-y divide-slate-100">
+  {% for f in follow_ups %}
+  <div class="p-4 flex items-start justify-between">
+    <div>
+      <p class="font-medium">{{ f.subject or "(no subject)" }}</p>
+      {% if f.sender %}<p class="text-sm text-slate-500">{{ f.sender }}</p>{% endif %}
+      <p class="text-xs text-slate-400 mt-1">Last sent: {{ f.last_sent_at }}</p>
+    </div>
+    <span class="text-xs px-2 py-1 rounded-full
+      {% if f.status == 'drafted' %}bg-blue-100 text-blue-700{% else %}bg-amber-100 text-amber-700{% endif %}">
+      {{ f.status }}
+    </span>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-slate-400">No threads are currently flagged for follow-up.</p>
+{% endif %}
+{% endblock %}

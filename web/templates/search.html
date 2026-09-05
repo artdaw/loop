@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Loop — Search{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-6">Semantic search</h1>
+
+<input
+  type="search"
+  name="q"
+  value="{{ query }}"
+  placeholder="Search notes and email summaries…"
+  autocomplete="off"
+  class="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-400"
+  hx-get="/search"
+  hx-trigger="keyup changed delay:400ms, search"
+  hx-target="#search-results"
+  hx-indicator="#search-spinner"
+/>
+<div id="search-spinner" class="htmx-indicator text-sm text-slate-400 mt-2">Searching…</div>
+
+<div id="search-results" class="mt-6">
+  {% include "search_results.html" %}
+</div>
+{% endblock %}

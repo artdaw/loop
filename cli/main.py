@@ -62,9 +62,47 @@ def find(
     query: str = typer.Argument(..., help="Search text for the knowledge base."),
     limit: int = typer.Option(5, "--limit", "-n", help="Max results to return."),
 ) -> None:
-    """Semantic search across the Obsidian knowledge base (Phase 2)."""
-    typer.echo(f"(Phase 2 stub) Searching knowledge base for: {query!r} (limit {limit})")
-    # TODO(phase2): call KnowledgeSpecialist.search(query, limit=limit) and print hits.
+    """Semantic search across the Obsidian knowledge base + email summaries."""
+    from core.vector_store import VectorStore
+
+    try:
+        store = VectorStore()
+        results = store.semantic_search(query, n_results=limit)
+    except Exception as exc:  # noqa: BLE001 - surface a friendly message
+        typer.secho(f"Search failed: {exc}", fg=typer.colors.RED)
+        typer.echo("Is Ollama running (for embeddings) and has the vault been indexed?")
+        raise typer.Exit(code=1) from exc
+
+    if not results:
+        typer.echo(f"No results for {query!r}.")
+        return
+
+    for i, hit in enumerate(results, start=1):
+        meta = hit.metadata or {}
+        title = meta.get("title") or meta.get("subject") or "(untitled)"
+        excerpt = _excerpt(hit.document, query)
+        if hit.kind == "email":
+            sender = meta.get("sender", "unknown")
+            date = meta.get("date", "")
+            typer.echo(f'[{i}] Email: "{title}" from {sender} ({date})')
+        else:
+            date = meta.get("date", "")
+            date_str = f" ({date})" if date else ""
+            typer.echo(f'[{i}] Note: "{title}"{date_str}')
+        typer.echo(f'    "...{excerpt}..."')
+
+
+def _excerpt(document: str, query: str, *, width: int = 160) -> str:
+    """Return a short excerpt from ``document``, centred on the query if found."""
+    text = " ".join((document or "").split())
+    if not text:
+        return ""
+    lowered = text.lower()
+    pos = lowered.find(query.lower().split()[0]) if query.split() else -1
+    if pos == -1:
+        return text[:width]
+    start = max(0, pos - width // 2)
+    return text[start:start + width]
 
 
 @app.command()

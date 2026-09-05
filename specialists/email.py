@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from config.settings import Settings, get_settings
+from core.vector_store import VectorStore
 
 
 @dataclass
@@ -32,10 +33,22 @@ class FlaggedThread:
 class EmailSpecialist:
     """Focused sub-agent for everything email."""
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(self, settings: Settings | None = None,
+                 vector_store: VectorStore | None = None) -> None:
         self.settings = settings or get_settings()
+        self.vectors = vector_store or VectorStore(self.settings)
         # TODO(phase1): accept Gmail + Outlook connectors and the LLMRouter.
         # TODO(phase1): accept the MemoryStore for follow-up persistence.
+
+    def index_email(self, subject: str, summary: str, sender: str, date: str) -> str:
+        """Index an email summary into the ChromaDB emails collection.
+
+        Called after a thread is summarised so it becomes semantically
+        searchable via ``loop find`` and the web dashboard. Email summaries are
+        non-private work data, so this uses the local embedding model and stores
+        vectors locally.
+        """
+        return self.vectors.index_email(subject, summary, sender, date)
 
     def scan_inboxes(self) -> list[FlaggedThread]:
         """Fetch recent threads and classify them into tags."""

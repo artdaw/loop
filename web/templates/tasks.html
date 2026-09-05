@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Loop — Tasks{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-6">Open tasks</h1>
+
+{% if tasks %}
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 divide-y divide-slate-100">
+  {% for t in tasks %}
+  <div class="p-4 flex items-center justify-between {% if t.id in overdue_ids %}bg-red-50{% endif %}">
+    <div>
+      <p class="font-medium">{{ t.description }}</p>
+      <p class="text-xs text-slate-400 mt-1">
+        source: {{ t.source }}
+        {% if t.due_date %} · due {{ t.due_date }}{% if t.id in overdue_ids %} <span class="text-red-500 font-semibold">(overdue)</span>{% endif %}{% endif %}
+      </p>
+    </div>
+    <span class="text-xs px-2 py-1 rounded-full
+      {% if t.priority == 'high' %}bg-red-100 text-red-700{% elif t.priority == 'low' %}bg-slate-100 text-slate-500{% else %}bg-emerald-100 text-emerald-700{% endif %}">
+      {{ t.priority }}
+    </span>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-slate-400">No open tasks. Inbox zero for tasks. 🎉</p>
+{% endif %}
+{% endblock %}

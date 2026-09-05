@@ -65,6 +65,19 @@ class Settings(BaseSettings):
 
     # --- Obsidian ----------------------------------------------------------
     obsidian_vault_path: str = "~/Obsidian/Vault"
+    # A second, private vault whose notes must never reach a cloud LLM.
+    obsidian_private_vault_path: str = ""
+
+    # --- Web dashboard -----------------------------------------------------
+    web_host: str = "0.0.0.0"
+    web_port: int = 8000
+
+    # --- LLM routing heuristics -------------------------------------------
+    # Cloud fallback triggers when a local response is shorter than this
+    # (characters), contains a refusal phrase, or takes longer than the
+    # latency budget below.
+    local_min_response_chars: int = 40
+    local_latency_budget_seconds: float = 10.0
 
     # --- Privacy gate ------------------------------------------------------
     # Comma-separated vault names/paths that must never reach a cloud LLM.

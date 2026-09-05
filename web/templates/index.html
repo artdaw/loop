@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Loop — Today{% endblock %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-1">Today's briefing</h1>
+<p class="text-sm text-slate-500 mb-6">{{ today }}</p>
+
+<div class="grid gap-6 md:grid-cols-3">
+  <!-- Meetings -->
+  <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+    <h2 class="font-semibold mb-3 flex items-center gap-2">📅 Meetings</h2>
+    {% if meetings %}
+      <ul class="space-y-2 text-sm">
+        {% for m in meetings %}
+        <li class="border-l-2 border-blue-400 pl-2">{{ m.title }} <span class="text-slate-400">{{ m.time }}</span></li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-sm text-slate-400">No meetings loaded. The live agent populates these at runtime.</p>
+    {% endif %}
+  </section>
+
+  <!-- Flagged emails -->
+  <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+    <h2 class="font-semibold mb-3 flex items-center gap-2">✉️ Flagged emails</h2>
+    {% if follow_ups %}
+      <ul class="space-y-2 text-sm">
+        {% for f in follow_ups %}
+        <li class="border-l-2 border-amber-400 pl-2">
+          <span class="font-medium">{{ f.subject or "(no subject)" }}</span>
+          {% if f.sender %}<span class="text-slate-400 block text-xs">{{ f.sender }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-sm text-slate-400">No flagged threads. 🎉</p>
+    {% endif %}
+  </section>
+
+  <!-- Tasks due today -->
+  <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+    <h2 class="font-semibold mb-3 flex items-center gap-2">✅ Tasks due today</h2>
+    {% if overdue %}
+      <p class="text-xs font-semibold text-red-500 mb-1">Overdue</p>
+      <ul class="space-y-1 text-sm mb-3">
+        {% for t in overdue %}
+        <li class="text-red-600">• {{ t.description }} <span class="text-xs">({{ t.due_date }})</span></li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    {% if due_today %}
+      <ul class="space-y-1 text-sm">
+        {% for t in due_today %}
+        <li>• {{ t.description }}{% if t.priority == "high" %} <span class="text-red-500">‼️</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+    {% elif not overdue %}
+      <p class="text-sm text-slate-400">Nothing due today.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
