@@ -40,8 +40,12 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-asyncio>=0.24",
     "ruff>=0.6",
     "mypy>=1.11",
+]
+voice = [
+    "faster-whisper>=1.0",
 ]
 
 [project.scripts]
@@ -57,6 +61,11 @@ packages = ["core", "specialists", "integrations", "delivery", "cli", "web", "co
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"
 
 [tool.mypy]
 python_version = "3.12"

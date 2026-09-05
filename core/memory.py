@@ -11,6 +11,7 @@ dashboard. Semantic vector memory lives in :mod:`core.vector_store` (ChromaDB).
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -22,11 +23,15 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    inspect,
     select,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from config.settings import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -49,6 +54,8 @@ class FollowUp(Base):
     triage_score: Mapped[int] = mapped_column(Integer, default=0, index=True)
     # When snoozed, don't resurface before this time.
     snooze_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Project slug this thread belongs to (Phase 4), or NULL when unmatched.
+    project: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
 
 class Reminder(Base):
@@ -72,10 +79,17 @@ class Task(Base):
     description: Mapped[str] = mapped_column(Text)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     priority: Mapped[str] = mapped_column(String(16), default="normal")  # low|normal|high
-    status: Mapped[str] = mapped_column(String(16), default="open")      # open|done
+    status: Mapped[str] = mapped_column(String(16), default="open")      # open|done|orphaned
     source: Mapped[str] = mapped_column(String(32), default="chat")      # chat|wrike|cli
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # --- Phase 4 --------------------------------------------------------- #
+    # Project slug this task belongs to, or NULL when unmatched.
+    project: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Wrike linkage. ``wrike_id`` is set once a task exists on both sides.
+    wrike_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    remote_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Preference(Base):
@@ -127,6 +141,26 @@ class SessionSummary(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class AutonomyAudit(Base):
+    """One row per gated action, recording under what authority it happened.
+
+    Mirrors the auditability rule already applied to LLM calls: we record *that*
+    an action occurred and at which autonomy level, never the content of the
+    email, note, or task involved. ``detail`` is a short human-readable label
+    (a task id, a filename), not a payload.
+    """
+
+    __tablename__ = "autonomy_audit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    action: Mapped[str] = mapped_column(String(32), index=True)
+    level: Mapped[str] = mapped_column(String(16), default="approve")
+    executed: Mapped[bool] = mapped_column(Boolean, default=False)
+    approved: Mapped[bool] = mapped_column(Boolean, default=False)
+    detail: Mapped[str] = mapped_column(Text, default="")
+
+
 class MemoryStore:
     """Thin wrapper around a SQLite engine + session factory."""
 
@@ -145,8 +179,41 @@ class MemoryStore:
                 db_path.parent.mkdir(parents=True, exist_ok=True)
 
     def bootstrap(self) -> None:
-        """Create all tables if they do not yet exist."""
+        """Create missing tables, then additively migrate the existing ones."""
         Base.metadata.create_all(self.engine)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add mapped columns that are missing from already-existing tables.
+
+        ``create_all`` creates missing *tables* but never alters existing ones,
+        so a database written by an earlier version of Loop keeps its old
+        columns and silently lacks the new ones. This walks every mapped table
+        that already exists and adds whatever columns the ORM expects.
+
+        Additive only: it never drops, renames, or retypes a column, which is
+        what makes it safe to run unconditionally on every boot. That
+        constraint is also why a full migration tool (Alembic) is not warranted
+        for a single-user SQLite file.
+        """
+        inspector = inspect(self.engine)
+        existing_tables = set(inspector.get_table_names())
+
+        with self.engine.begin() as conn:
+            for table in Base.metadata.sorted_tables:
+                if table.name not in existing_tables:
+                    continue  # create_all just made it, with every column
+                present = {col["name"] for col in inspector.get_columns(table.name)}
+                for column in table.columns:
+                    if column.name in present:
+                        continue
+                    ddl_type = column.type.compile(dialect=self.engine.dialect)
+                    # ALTER TABLE ADD COLUMN cannot add a NOT NULL column without
+                    # a default, so added columns are always nullable here.
+                    conn.execute(
+                        text(f"ALTER TABLE {table.name} ADD COLUMN {column.name} {ddl_type}")
+                    )
+                    logger.info("Schema migration: added %s.%s", table.name, column.name)
 
     def session(self) -> Session:
         """Return a new SQLAlchemy session."""
