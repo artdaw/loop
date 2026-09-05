@@ -15,6 +15,24 @@ from config.settings import Settings, get_settings
 from core.memory import MemoryStore
 
 
+@pytest.fixture(autouse=True)
+def _never_read_the_real_dotenv(monkeypatch) -> None:
+    """Stop tests reading the developer's actual ``.env``.
+
+    ``Settings`` loads ``.env`` from the working directory by default, so
+    without this a real Telegram token or Wrike key on the developer's machine
+    silently changes what the suite asserts — tests would pass on a fresh
+    checkout and fail once someone ran ``setup.sh``. Autouse so no test can
+    forget it.
+    """
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+
+    # Exported LOOP settings would leak in the same way.
+    for field in Settings.model_fields:
+        monkeypatch.delenv(field.upper(), raising=False)
+        monkeypatch.delenv(field, raising=False)
+
+
 @pytest.fixture
 def vault(tmp_path: Path) -> Path:
     """An empty Obsidian vault directory."""

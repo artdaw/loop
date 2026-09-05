@@ -94,14 +94,18 @@ docker compose run --rm app loop briefing
 ```
 
 ### 3b. Run locally (without Docker)
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first.
+
 ```bash
 # install Ollama, then pull the default models:
 ollama pull llama3.1:8b          # local chat/reasoning model
 ollama pull nomic-embed-text     # local embedding model (ChromaDB index)
 
-pip install -e .        # installs the `loop` CLI + all deps (chromadb, watchdog, botbuilder…)
-pip install -e ".[voice]"   # optional: local voice-to-note (faster-whisper)
-pip install -e ".[dev]"     # optional: pytest, ruff, mypy
+uv venv --python 3.12
+source .venv/bin/activate
+uv pip install -e .        # installs the `loop` CLI + all deps (chromadb, watchdog, botbuilder…)
+uv pip install -e ".[voice]"   # optional: local voice-to-note (faster-whisper)
+uv pip install -e ".[dev]"     # optional: pytest, ruff, mypy
 loop status
 loop briefing
 
@@ -137,9 +141,9 @@ Proactive reminders and follow-up prompts are sent via
 ### CLI commands
 | Command | Description | Phase |
 |---|---|---|
-| `loop status` | Health: integrations, scheduler, pending items | 1 |
-| `loop briefing` | Today's meetings + flagged emails | 1 |
-| `loop snooze <item> --hours N` | Snooze a reminder/follow-up | 1 |
+| `loop status` | What is wired up, what is not, what is waiting | 1 |
+| `loop briefing` | Today's meetings, flagged threads, tasks due | 1 |
+| `loop snooze <id> --hours N` | Hide a follow-up from the briefing | 1 |
 | `loop find "<query>"` | Semantic search over Obsidian | 2 |
 | `loop ask "<question>"` | Free-form query across all sources | 3 |
 | `loop autonomy` | Show how autonomously Loop may act, per action | 4 |
@@ -149,10 +153,16 @@ Proactive reminders and follow-up prompts are sent via
 | `loop metrics [--days N]` | Local-vs-cloud, task and follow-up metrics | 4 |
 | `loop note-from-audio <path>` | Transcribe a voice memo into a vault note | 4 |
 
-> **Note:** Phases 1–4 are implemented. Some Phase 1 connector stubs remain —
-> `EmailSpecialist.scan_inboxes`/`send_follow_up` and the Telegram polling loop
-> are still marked `TODO(phase1)`, so email *transport* is not wired even though
-> the triage, follow-up tracking, and autonomy gating around it are.
+> **Note:** Phases 1–4 are implemented, and everything that reads local state
+> works today — `status`, `briefing`, `snooze`, `find`, `ask`, `review`, `sync`,
+> `metrics`, and the dashboard.
+>
+> What remains stubbed is the **external transport**: the Gmail, Outlook,
+> Google/Outlook Calendar, and Telegram-polling clients are still
+> `TODO(phase1)`. So Loop can rank, schedule, and draft around your mail and
+> meetings, but cannot yet fetch or send them. `loop briefing` says so plainly
+> rather than rendering an empty diary — an assistant that quietly omits your
+> meetings is worse than one that admits it cannot see them.
 
 ---
 
@@ -256,8 +266,10 @@ with the action, level, and outcome — never the content.
 ## Development
 
 ```bash
-pip install -e ".[dev]"
-pytest          # 145 tests, hermetic: no network, no Ollama, no API keys
+uv venv --python 3.12       # if you have not created the environment yet
+source .venv/bin/activate
+uv pip install -e ".[dev]"
+pytest          # 182 tests, hermetic: no network, model, keys, or .env
 ruff check .
 mypy .
 ```

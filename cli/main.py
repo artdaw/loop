@@ -30,32 +30,75 @@ app = typer.Typer(
 
 @app.command()
 def status() -> None:
-    """Show assistant health: connected integrations, scheduler, pending items."""
-    settings = get_settings()
-    typer.echo(f"Loop status — environment: {settings.environment}")
-    typer.echo("  (Phase 1 stub) integrations: not yet wired")
-    typer.echo("  (Phase 1 stub) scheduler:    not running")
-    typer.echo("  (Phase 1 stub) open follow-ups / reminders: n/a")
-    # TODO(phase1): report real integration connectivity, scheduler state,
-    #               and counts of open follow-ups / due reminders from memory.
+    """Show what is wired up, what is not, and what is waiting."""
+    from core.health import HealthChecker
+
+    typer.echo(HealthChecker().check().render())
 
 
 @app.command()
 def briefing() -> None:
-    """Print today's morning briefing (meetings + flagged emails)."""
-    typer.echo("(Phase 1 stub) Morning briefing will list today's meetings")
-    typer.echo("and flagged email threads once integrations are wired.")
-    # TODO(phase1): call CalendarSpecialist.morning_briefing() and print it.
+    """Print today's briefing: meetings, flagged threads, and tasks due."""
+    from specialists.briefing import DailyBriefing
+
+    typer.echo(DailyBriefing(memory=_store(), calendar=_calendar()).compose())
+
+
+def _calendar():
+    """Build a CalendarSpecialist wired to whichever calendars are configured.
+
+    Returns ``None`` when neither Google nor Outlook has credentials, which the
+    briefing renders as "calendars not connected".
+
+    The connectors must actually be passed in: a CalendarSpecialist with no
+    connectors returns an empty list, which the briefing would report as "nothing
+    in the diary" — indistinguishable from a genuinely free day. Wiring the real
+    clients means their Phase 1 ``NotImplementedError`` surfaces instead, and the
+    briefing says the connectors are not implemented yet.
+    """
+    from pathlib import Path
+
+    settings = get_settings()
+    google = outlook = None
+
+    if Path(settings.gmail_credentials_path).expanduser().is_file():
+        from integrations.google_calendar import GoogleCalendarClient
+
+        google = GoogleCalendarClient(settings)
+
+    if settings.outlook_client_id.strip() and settings.outlook_client_secret.strip():
+        from integrations.outlook_calendar import OutlookCalendarClient
+
+        outlook = OutlookCalendarClient(settings)
+
+    if google is None and outlook is None:
+        return None
+
+    from specialists.calendar import CalendarSpecialist
+
+    return CalendarSpecialist(settings, google_calendar=google,
+                              outlook_calendar=outlook)
 
 
 @app.command()
 def snooze(
-    item: str = typer.Argument(..., help="Reminder/follow-up id to snooze."),
+    item: int = typer.Argument(..., help="Follow-up id to snooze (see `loop briefing`)."),
     hours: int = typer.Option(24, "--hours", "-h", help="Snooze duration in hours."),
 ) -> None:
-    """Snooze a reminder or follow-up for a number of hours."""
-    typer.echo(f"(Phase 1 stub) Snoozing '{item}' for {hours}h.")
-    # TODO(phase1): update the reminder/follow-up fire_at in the MemoryStore.
+    """Hide a follow-up from the briefing for a number of hours."""
+    store = _store()
+    follow_up = store.get_follow_up(item)
+    if follow_up is None:
+        typer.secho(f"No follow-up with id {item}.", fg=typer.colors.RED)
+        typer.echo("Run `loop briefing` to see the ids of open threads.")
+        raise typer.Exit(code=1)
+
+    if store.snooze_follow_up(item, hours):
+        subject = follow_up.subject or follow_up.thread_id
+        typer.secho(f"Snoozed \"{subject}\" for {hours}h.", fg=typer.colors.GREEN)
+    else:
+        typer.secho(f"Could not snooze follow-up {item}.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
 
 
 @app.command()

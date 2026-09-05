@@ -23,7 +23,7 @@ pip install -e ".[voice]"        # optional: faster-whisper for voice-to-note
 loop --help                      # or: python -m cli.main --help
 uvicorn web.main:app --reload --port 8000
 
-pytest                           # 145 tests; hermetic, no network/model/keys
+pytest                           # 182 tests; hermetic, no network/model/keys/.env
 pytest tests/test_autonomy.py -v # a single file
 pytest -k "ceiling"              # a single test by name
 ruff check .                     # rule set pinned in [tool.ruff.lint]
@@ -37,7 +37,10 @@ docker compose logs -f app
 ./scripts/new_user.sh <name>     # provision an isolated peer instance
 ```
 
-The suite is **hermetic by design**: no test needs Ollama, a network, a vault, or a Wrike key.
+The suite is **hermetic by design**: no test needs Ollama, a network, a vault, or a Wrike key —
+and an autouse fixture in `conftest.py` blanks `Settings.model_config["env_file"]` so a developer's
+real `.env` can never change what the suite asserts. Keep that fixture; without it the tests pass on
+a fresh checkout and fail once someone runs `setup.sh`.
 Keep it that way — use the collaborator-injection seams (`Orchestrator`, `LLMRouter`, `WrikeSync`,
 `AutonomyGate`, and every specialist take their dependencies as constructor kwargs), the
 `memory_store`/`settings`/`web_client` fixtures in `tests/conftest.py`, and `httpx.MockTransport`
@@ -112,5 +115,10 @@ that use them so unconfigured deployments still start. Keep new integrations doi
 - Audio is unconditionally `local_only` — there is no cloud transcriber behind the `Transcriber`
   protocol and the design forbids adding one.
 - Project matching is deterministic and LLM-free on purpose; it runs on every inbound item.
+- `loop status`/`briefing` live in `core/health.py` and `specialists/briefing.py`, split
+  collect-then-render like `review.py`. Neither may raise: a missing connector or unreachable
+  service is a *state to report*. `_calendar()` in the CLI must pass real connectors — a
+  `CalendarSpecialist` built without them returns `[]`, which would render as "nothing in the diary"
+  and be indistinguishable from a free day.
 - Work lands on `phase-N` branches merged to `main` via PR; commit subjects read
   `Phase N: <what changed>`.

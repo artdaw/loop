@@ -1,0 +1,37 @@
+# Keep the build context small and the image clean.
+# Without this, `COPY . .` would pull the local virtualenv, git history, and
+# your private SQLite/Chroma data into the image.
+
+# --- Secrets & local state (never belong in an image) ---
+.env
+credentials.json
+token.json
+data/
+
+# --- Local tooling ---
+.venv/
+venv/
+env/
+.git/
+.gitignore
+
+# --- Python build/test artefacts ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# --- Not needed at runtime ---
+docs/
+tests/
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
