@@ -1,14 +1,20 @@
-"""Loop Web — read-only FastAPI + Jinja2 + HTMX dashboard.
+"""Loop Web — interactive FastAPI + Jinja2 + HTMX dashboard (v2).
 
-A lightweight browser view over the same local state the CLI uses. Phase 2 ships
-a read-only dashboard:
+A lightweight browser view over the same local state the CLI uses. Phase 3
+upgrades the read-only dashboard into an interactive one:
 
-    GET /            Today's briefing: meetings, flagged emails, tasks due today
-    GET /follow-ups  Email threads flagged for follow-up (from SQLite)
-    GET /tasks       All open tasks (from SQLite)
-    GET /search?q=   Semantic search results (ChromaDB via VectorStore)
+    GET  /                         Today's briefing (meetings, emails, tasks)
+    GET  /follow-ups               Email threads flagged for follow-up
+    POST /follow-ups/{id}/approve  Mark a follow-up approved (sent)
+    POST /follow-ups/{id}/snooze   Snooze a follow-up for N hours
+    POST /follow-ups/{id}/ignore   Dismiss a follow-up
+    GET  /tasks                    All open tasks
+    POST /tasks                    Create a task
+    POST /tasks/{id}/complete      Mark a task complete
+    GET  /search?q=                Semantic search results (ChromaDB)
 
-Styling is Tailwind (CDN) and the search box uses HTMX — no JS framework.
+Styling is Tailwind (CDN); search uses HTMX and the action buttons post back
+to the server — no JS framework.
 
 Run with:
     uvicorn web.main:app --reload --port 8000
@@ -19,8 +25,8 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from config.settings import get_settings
@@ -103,6 +109,75 @@ def tasks(request: Request) -> HTMLResponse:
         "tasks.html",
         {"tasks": open_tasks, "overdue_ids": overdue, "active": "tasks"},
     )
+
+
+# --------------------------------------------------------------------------- #
+# Follow-up actions (Phase 3)
+# --------------------------------------------------------------------------- #
+@app.post("/follow-ups/{follow_up_id}/approve")
+def approve_follow_up(follow_up_id: int) -> RedirectResponse:
+    """Approve a follow-up (mark it sent).
+
+    Actual dispatch runs through the Gmail/Outlook connectors when wired; the
+    dashboard records the approval so the item leaves the queue either way.
+    """
+    store = _memory()
+    try:
+        store.set_follow_up_status(follow_up_id, "sent")
+    except Exception:  # noqa: BLE001 - never 500 the dashboard
+        pass
+    return RedirectResponse(url="/follow-ups", status_code=303)
+
+
+@app.post("/follow-ups/{follow_up_id}/snooze")
+def snooze_follow_up_route(follow_up_id: int,
+                           hours: int = Form(24)) -> RedirectResponse:
+    """Snooze a follow-up for a number of hours (hidden until then)."""
+    store = _memory()
+    try:
+        store.snooze_follow_up(follow_up_id, hours)
+    except Exception:  # noqa: BLE001
+        pass
+    return RedirectResponse(url="/follow-ups", status_code=303)
+
+
+@app.post("/follow-ups/{follow_up_id}/ignore")
+def ignore_follow_up(follow_up_id: int) -> RedirectResponse:
+    """Dismiss a follow-up (mark it ignored)."""
+    store = _memory()
+    try:
+        store.set_follow_up_status(follow_up_id, "ignored")
+    except Exception:  # noqa: BLE001
+        pass
+    return RedirectResponse(url="/follow-ups", status_code=303)
+
+
+# --------------------------------------------------------------------------- #
+# Task actions (Phase 3)
+# --------------------------------------------------------------------------- #
+@app.post("/tasks")
+def create_task(description: str = Form(...),
+                priority: str = Form("normal")) -> RedirectResponse:
+    """Create a new task from the dashboard form."""
+    store = _memory()
+    text = description.strip()
+    if text:
+        try:
+            store.add_task(text, priority=priority, source="web")
+        except Exception:  # noqa: BLE001
+            pass
+    return RedirectResponse(url="/tasks", status_code=303)
+
+
+@app.post("/tasks/{task_id}/complete")
+def complete_task_route(task_id: int) -> RedirectResponse:
+    """Mark a task complete."""
+    store = _memory()
+    try:
+        store.complete_task(task_id)
+    except Exception:  # noqa: BLE001
+        pass
+    return RedirectResponse(url="/tasks", status_code=303)
 
 
 @app.get("/search", response_class=HTMLResponse)
