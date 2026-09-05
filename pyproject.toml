@@ -1,0 +1,58 @@
+[project]
+name = "loop"
+version = "0.1.0"
+description = "Loop — a terminal-first, AI-driven personal command centre (local-first, cloud-optional)."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Gleb", email = "me@artdaw.com" }]
+keywords = ["assistant", "agent", "llm", "ollama", "productivity"]
+
+dependencies = [
+    # Agent framework + LLMs
+    "langchain>=0.3",
+    "langgraph>=0.2",
+    "ollama>=0.3",
+    "anthropic>=0.34",
+    # Integrations
+    "python-telegram-bot>=21.0",
+    "msgraph-sdk>=1.0",
+    "google-api-python-client>=2.130",
+    "google-auth-oauthlib>=1.2",
+    # Persistence
+    "sqlalchemy>=2.0",
+    "chromadb>=0.5",
+    # Interfaces
+    "typer>=0.12",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    # Config + scheduling + HTTP
+    "pydantic-settings>=2.4",
+    "apscheduler>=3.10",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[project.scripts]
+loop = "cli.main:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["core", "specialists", "integrations", "delivery", "cli", "web", "config"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true

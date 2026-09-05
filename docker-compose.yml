@@ -1,0 +1,59 @@
+# Loop — local deployment stack.
+#
+#   docker compose up -d          # start ollama + chromadb + app
+#   docker compose run --rm app loop briefing
+#
+# The first run pulls the default Ollama models (see the `ollama-init` service).
+
+services:
+  # Local LLM runtime. Models are stored in the named volume `ollama`.
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+
+  # One-shot service that pulls the default models on first `up`.
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      - ollama
+    environment:
+      - OLLAMA_HOST=ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "ollama pull llama3.1:8b && ollama pull nomic-embed-text"
+    restart: "no"
+
+  # Local vector store for semantic memory (Phase 2).
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma:/chroma/chroma
+    restart: unless-stopped
+
+  # The assistant itself.
+  app:
+    build: .
+    depends_on:
+      - ollama
+      - chromadb
+    env_file:
+      - .env
+    environment:
+      # Point the app at the in-network services (override .env defaults).
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - CHROMA_PERSIST_DIR=data/chroma
+    volumes:
+      - ./data:/app/data
+      # Mount your Obsidian vault read/write (adjust the host path as needed).
+      # - ${OBSIDIAN_VAULT_PATH}:/vault
+    restart: unless-stopped
+
+volumes:
+  ollama:
+  chroma:
