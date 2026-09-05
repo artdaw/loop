@@ -232,7 +232,9 @@ class MemoryStore:
     # Task helpers
     # ------------------------------------------------------------------ #
     def add_task(self, description: str, *, due_date: date | None = None,
-                 priority: str = "normal", source: str = "chat") -> Task:
+                 priority: str = "normal", source: str = "chat",
+                 project: str | None = None,
+                 wrike_id: str | None = None) -> Task:
         """Persist a new task and return it (detached copy of its fields)."""
         with self.session() as session:
             task = Task(
@@ -241,6 +243,8 @@ class MemoryStore:
                 priority=priority,
                 source=source,
                 status="open",
+                project=project,
+                wrike_id=wrike_id,
             )
             session.add(task)
             session.commit()
@@ -248,12 +252,16 @@ class MemoryStore:
             session.expunge(task)
             return task
 
-    def list_open_tasks(self) -> list[Task]:
-        """Return all open tasks ordered by due date (nulls last)."""
+    def list_open_tasks(self, *, project: str | None = None) -> list[Task]:
+        """Return all open tasks ordered by due date (nulls last).
+
+        ``project`` filters to one project slug; ``None`` returns every task.
+        """
         with self.session() as session:
-            rows = session.scalars(
-                select(Task).where(Task.status == "open")
-            ).all()
+            statement = select(Task).where(Task.status == "open")
+            if project:
+                statement = statement.where(Task.project == project)
+            rows = session.scalars(statement).all()
             ordered = sorted(rows, key=lambda t: (t.due_date is None, t.due_date or date.max))
             for row in ordered:
                 session.expunge(row)
@@ -409,6 +417,36 @@ class MemoryStore:
     # ------------------------------------------------------------------ #
     # Preference helpers
     # ------------------------------------------------------------------ #
+    # ------------------------------------------------------------------ #
+    # Task helpers (Phase 4)
+    # ------------------------------------------------------------------ #
+    def get_task(self, task_id: int) -> Task | None:
+        """Return one task by id (detached copy), or ``None``."""
+        with self.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                return None
+            session.expunge(task)
+            return task
+
+    def set_task_project(self, task_id: int, project: str | None) -> bool:
+        """Tag a task with a project slug. Returns False if it does not exist."""
+        with self.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                return False
+            task.project = project
+            session.commit()
+            return True
+
+    def known_task_projects(self) -> list[str]:
+        """Return the distinct project slugs currently in use, sorted."""
+        with self.session() as session:
+            rows = session.scalars(
+                select(Task.project).where(Task.project.is_not(None)).distinct()
+            ).all()
+        return sorted({row for row in rows if row})
+
     # ------------------------------------------------------------------ #
     # Autonomy audit (Phase 4)
     # ------------------------------------------------------------------ #

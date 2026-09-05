@@ -1,7 +1,23 @@
 {% extends "base.html" %}
 {% block title %}Loop — Tasks{% endblock %}
 {% block content %}
-<h1 class="text-xl font-semibold mb-6">Open tasks</h1>
+<h1 class="text-xl font-semibold mb-4">Open tasks</h1>
+
+{% if projects %}
+<div class="mb-6 flex flex-wrap items-center gap-2 text-sm">
+  <span class="text-slate-500">Project:</span>
+  <a href="/tasks"
+     class="px-2.5 py-1 rounded-full border {% if not selected_project %}bg-slate-900 text-white border-slate-900{% else %}border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+    all
+  </a>
+  {% for slug in projects %}
+  <a href="/tasks?project={{ slug }}"
+     class="px-2.5 py-1 rounded-full border {% if selected_project == slug %}bg-slate-900 text-white border-slate-900{% else %}border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+    {{ slug }}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
 
 <form method="post" action="/tasks"
       class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-6 flex flex-wrap items-center gap-3">

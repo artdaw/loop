@@ -110,18 +110,26 @@ def follow_ups(request: Request) -> HTMLResponse:
 
 
 @app.get("/tasks", response_class=HTMLResponse)
-def tasks(request: Request) -> HTMLResponse:
-    """List all open tasks."""
+def tasks(request: Request, project: str = "") -> HTMLResponse:
+    """List all open tasks, optionally filtered to one project."""
     store = _memory()
+    selected = project.strip() or None
     try:
-        open_tasks = store.list_open_tasks()
-        overdue = set(t.id for t in store.get_overdue())
+        open_tasks = store.list_open_tasks(project=selected)
+        overdue = {t.id for t in store.get_overdue()}
+        projects = store.known_task_projects()
     except Exception:  # noqa: BLE001
-        open_tasks, overdue = [], set()
+        open_tasks, overdue, projects = [], set(), []
     return templates.TemplateResponse(
         request,
         "tasks.html",
-        {"tasks": open_tasks, "overdue_ids": overdue, "active": "tasks"},
+        {
+            "tasks": open_tasks,
+            "overdue_ids": overdue,
+            "projects": projects,
+            "selected_project": selected,
+            "active": "tasks",
+        },
     )
 
 

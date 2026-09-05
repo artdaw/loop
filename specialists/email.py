@@ -15,6 +15,7 @@ Autonomous sending is out of scope for v1 — sending always requires approval.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -26,6 +27,8 @@ _URGENCY_KEYWORDS: tuple[str, ...] = (
     "urgent", "asap", "as soon as possible", "deadline", "today", "eod",
     "immediately", "critical", "important", "time-sensitive", "reminder",
 )
+
+logger = logging.getLogger(__name__)
 
 # Valid triage actions.
 TRIAGE_ACTIONS: tuple[str, ...] = (
@@ -49,6 +52,7 @@ class TriageScore:
     urgency: int      # 1..5
     importance: int   # 1..5
     action: str       # one of TRIAGE_ACTIONS
+    project: str | None = None  # matched project slug, or None (Phase 4)
 
     @property
     def score(self) -> int:
@@ -61,11 +65,15 @@ class EmailSpecialist:
 
     def __init__(self, settings: Settings | None = None,
                  vector_store: VectorStore | None = None,
-                 memory: Any | None = None) -> None:
+                 memory: Any | None = None,
+                 matcher: Any | None = None) -> None:
         self.settings = settings or get_settings()
         self.vectors = vector_store or VectorStore(self.settings)
         # Optional MemoryStore for persisting triage scores onto follow-ups.
         self._memory = memory
+        # Optional ProjectMatcher (Phase 4). Mail that belongs to an active
+        # project is more important to you than mail that belongs to none.
+        self.matcher = matcher
         # TODO(phase1): accept Gmail + Outlook connectors and the LLMRouter.
 
     # ------------------------------------------------------------------ #
@@ -111,11 +119,25 @@ class EmailSpecialist:
             importance += 1
         if cc_count >= 3:
             importance += 1
+        project = self._match_project(f"{subject}\n{body}")
+        if project:
+            importance += 1                       # belongs to an active project
         importance = max(1, min(importance, 5))
 
         action = self._recommend_action(urgency, importance, is_vip=is_vip,
                                         cc_count=cc_count)
-        return TriageScore(urgency=urgency, importance=importance, action=action)
+        return TriageScore(urgency=urgency, importance=importance, action=action,
+                           project=project)
+
+    def _match_project(self, text: str) -> str | None:
+        """Best-effort project tagging; never blocks triage."""
+        if self.matcher is None:
+            return None
+        try:
+            return self.matcher.match_slug(text)
+        except Exception:  # noqa: BLE001 - tagging is a nicety, not a gate
+            logger.exception("Project matching failed during email triage")
+            return None
 
     @staticmethod
     def _recommend_action(urgency: int, importance: int, *, is_vip: bool,
