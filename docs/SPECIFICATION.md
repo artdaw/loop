@@ -1,6 +1,6 @@
 # Loop — Technical & Product Specification
 
-**Status:** Living document · reflects the codebase through Phase 3
+**Status:** Living document · reflects the codebase through Phase 4
 **Audience:** Engineers (human or LLM) rebuilding or extending Loop
 **Author's stance:** Written as an internal design doc — the kind a staff
 engineer would hand to a team (or an LLM) and expect them to reconstruct the
@@ -71,6 +71,13 @@ data the user has marked private.
 1. **Privacy is a gate, not a preference.** The privacy decision happens in one
    place (`LLMRouter`) and fails *closed*: if a private request cannot be served
    locally, it errors rather than silently escalating to the cloud.
+1b. **Autonomy is a second, orthogonal gate.** `AutonomyGate` (Phase 4) answers
+   a different question — *may Loop act without asking?* — and fails to
+   **asking**. The two axes are independent: private data can be safe to act on
+   automatically (a voice memo filed to the private vault), and non-private data
+   can require approval (an email to a colleague). **Invariant:** autonomy MUST
+   NOT influence backend choice, and privacy metadata MUST NOT influence whether
+   an action may run. Neither gate may be used as a proxy for the other.
 2. **Local-first, cloud-as-fallback.** Always try Ollama first. Escalate to
    Anthropic only on low-confidence local output (too short, refusal phrase,
    over latency budget) or when Ollama is unavailable — and only for non-private
@@ -131,19 +138,24 @@ loop/
 ├── core/                    # the engine
 │   ├── orchestrator.py      # routes events to specialists; free-form `ask`
 │   ├── llm_router.py        # local-first routing + privacy gate + fallback
-│   ├── memory.py            # SQLite state (ORM models + stores)
+│   ├── autonomy.py          # the second gate: may Loop act unattended?
+│   ├── memory.py            # SQLite state (ORM models + stores + migration)
 │   ├── vector_store.py      # ChromaDB semantic memory
+│   ├── projects.py          # project registry + deterministic matcher
+│   ├── wrike_sync.py        # bidirectional Wrike reconciliation
+│   ├── metrics.py           # activity + privacy metrics aggregation
 │   ├── scheduler.py         # APScheduler periodic jobs
-│   └── exceptions.py        # PrivacyError, BackendUnavailableError, …
+│   └── exceptions.py        # PrivacyError, ApprovalRequiredError, …
 ├── specialists/             # domain sub-agents
 │   ├── email.py             # inbox monitoring + triage scoring
 │   ├── calendar.py          # reminders + conflict detection
 │   ├── tasks.py             # task capture + summaries
-│   └── knowledge.py         # Obsidian semantic Q&A
+│   ├── review.py            # weekly review (stats + narrative)
+│   └── knowledge.py         # Obsidian semantic Q&A + voice-to-note
 ├── integrations/            # external service clients
 │   ├── gmail.py  outlook.py
 │   ├── google_calendar.py  outlook_calendar.py
-│   ├── obsidian.py  wrike.py
+│   ├── obsidian.py  wrike.py  transcribe.py
 │   ├── telegram_bot.py  teams_bot.py
 ├── delivery/                # outbound messaging
 │   ├── telegram.py  teams.py
@@ -153,9 +165,11 @@ loop/
 ├── scripts/                 # packaging / provisioning
 │   ├── setup.sh             # one-command per-user setup
 │   └── new_user.sh          # provision an isolated peer instance
+├── tests/                   # pytest suite (hermetic: no network/model/keys)
 ├── docs/
 │   ├── SPECIFICATION.md     # this document
-│   └── onboarding.md        # peer onboarding guide
+│   ├── onboarding.md        # peer onboarding guide
+│   └── superpowers/         # design specs + implementation plans
 ├── data/                    # local state (SQLite db, chroma dir) — gitignored
 ├── docker-compose.yml       # ollama + chromadb + app
 ├── Dockerfile
@@ -233,6 +247,16 @@ code. Env var names match field names case-insensitively (no prefix).
 | `private_telegram_personal` | `true` | Treat 1:1 Telegram chats as local-only |
 | `vip_senders` | `""` | CSV of VIP sender addresses (triage boost) |
 | `session_ttl_hours` | `24` | Conversation session expiry |
+| `default_autonomy_level` | `approve` | Global autonomy default (Phase 4) |
+| `max_autonomy_email_send` | `approve` | Hard ceiling for `EMAIL_SEND` |
+| `projects` | `""` | CSV of `"Name:kw1\|kw2"` project definitions |
+| `weekly_review_day` | `sun` | Day the weekly digest fires |
+| `weekly_review_time` | `18:00` | Local time the weekly digest fires |
+| `wrike_sync_minutes` | `30` | Background Wrike sync interval |
+| `wrike_folder_id` | `""` | Optional folder for pushed Wrike tasks |
+| `whisper_model_size` | `base` | Local Whisper model size |
+| `whisper_device` | `cpu` | Whisper device (`cpu`/`cuda`/`auto`) |
+| `whisper_compute_type` | `int8` | Whisper compute type |
 
 Derived helper: `vip_sender_list -> list[str]` splits `vip_senders` on commas
 and lowercases/strips each.
@@ -522,6 +546,13 @@ All are configured via `Settings` and degrade gracefully when unconfigured.
 - `loop snooze <item> [--hours N]` — snooze a reminder/follow-up.
 - `loop find <query> [--limit N]` — semantic search over notes + email
   summaries (wired to `VectorStore.semantic_search`).
+- `loop autonomy` / `loop autonomy-set <action> <level>` — inspect and change
+  autonomy levels (Phase 4).
+- `loop review [--weeks-ago N] [--no-narrative]` — the weekly digest.
+- `loop sync [--dry-run]` — bidirectional Wrike sync.
+- `loop metrics [--days N]` — local-vs-cloud and activity metrics.
+- `loop note-from-audio <path> [--dry-run]` — transcribe a voice memo locally
+  and file it as a note.
 - `loop ask <question> [--local/-l] [--session/-s <id>]` — free-form Q&A via
   `Orchestrator.ask`. `--local` forces local-only; prints the answer plus a
   dim `[backend | local_only | sources]` metadata line. Runs the async
@@ -546,9 +577,21 @@ Write endpoints (Phase 3 — interactive v2):
 - `POST /tasks` (form `description`, `priority`) — create a task.
 - `POST /tasks/{id}/complete` — complete a task.
 
+Phase 4 endpoints:
+- `GET /autonomy` — autonomy level per action, with ceilings and a recent-action
+  audit table.
+- `POST /autonomy/{action}` (form `level`) — change one level; an unknown action
+  or unparseable level leaves the setting untouched rather than erroring.
+- `GET /metrics?days=N` — local-vs-cloud share, task and follow-up throughput,
+  autonomy usage.
+- `GET /tasks?project=<slug>` — project-filtered task list.
+
 All write endpoints perform the action then redirect (HTTP 303) back to the
 listing, so the dashboard works with or without JavaScript. Forms require
 `python-multipart`. Templates extend `base.html`.
+
+`web/main.py` exposes `_store_override` / `_settings_override` module globals as
+a test seam; production never sets them.
 
 ---
 
@@ -581,6 +624,185 @@ automatically so containers, network, and volumes never collide between peers.
 `python -m venv .venv && pip install -e .` then `loop --help`;
 `uvicorn web.main:app --port 8000` for the dashboard. Requires a reachable
 Ollama.
+
+---
+
+## 11a. Phase 4 subsystems
+
+### 11a.1 Autonomy gate (`core/autonomy.py`)
+
+The second gate (see §2, principle 1b). Governs *actions*, never inference.
+
+- `AutonomyLevel(IntEnum)`: `OBSERVE=0`, `SUGGEST=1`, `APPROVE=2`, `ACT=3`.
+  An `IntEnum` so a ceiling is expressible as `min(level, ceiling)`.
+- `ActionType(str, Enum)`: `email_send`, `task_create`, `wrike_write`,
+  `note_write`, `calendar_write`, `notify`.
+- `AutonomyDecision(action, level, allowed, requires_approval, reason, capped)`.
+- `parse_level(value) -> AutonomyLevel | None` — tolerant parser; `None` on
+  anything unrecognised.
+
+**Resolution order** (`AutonomyGate.level_for`), first hit wins:
+1. `Preference["autonomy.<action>"]`
+2. `Preference["autonomy.default"]`
+3. `settings.default_autonomy_level`
+
+Unparseable values at any tier fall through to the next with a logged warning
+rather than raising — a corrupt preference MUST NOT brick the assistant. The
+final fallback is `APPROVE`.
+
+**Ceilings** (`ceiling_for`): `EMAIL_SEND` is capped by
+`settings.max_autonomy_email_send` (default `approve`); every other action's
+ceiling is `ACT`. `decide()` sets `capped=True` when a ceiling lowered the
+configured level, and the reason names the ceiling. This preserves the standing
+rule that Loop never sends mail unattended, while letting a user who genuinely
+wants it opt in via `.env` rather than a dashboard control.
+
+**Derived flags:** `allowed = level >= SUGGEST`;
+`requires_approval = allowed and level <= APPROVE`.
+
+`guard(action, approved=False)` raises `ApprovalRequiredError` unless the action
+may run; it always writes an audit row first. `decide()` is for callers that can
+present an approval UI, `guard()` for those that cannot.
+
+**Audit:** every gated action appends to `autonomy_audit`
+(`timestamp`, `action`, `level`, `executed`, `approved`, `detail`). `detail` is
+a short label (a task id, a filename) — never content. Audit failures are
+swallowed and logged: auditing must never break the action it records.
+
+### 11a.2 Weekly review (`specialists/review.py`)
+
+Split deliberately in two so the numbers survive a model outage:
+
+- `WeeklyReview.collect(week_start=None, *, weeks_ago=0) -> ReviewStats` — pure
+  aggregation over SQLite via `MemoryStore.activity_counts`. Monday–Sunday
+  window. No LLM.
+- `WeeklyReview.compose(stats=None, *, with_narrative=True) -> str` — renders
+  the deterministic stats block, then appends one paragraph from the model. Any
+  router failure logs and returns the stats alone.
+
+The narrative carries aggregate counts only (never content), so it routes as
+`{"source": "work"}` and may use the cloud fallback like any other work request.
+
+`ReviewStats` guards every ratio through a shared `_share(n, d)` helper that
+returns `0.0` when `d == 0`.
+
+Scheduled by `Scheduler.schedule_weekly_review(review, deliveries, *,
+day_of_week="sun", hour=18, minute=0)`, with the same per-channel exception
+isolation as the end-of-day job.
+
+### 11a.3 Project context (`core/projects.py`)
+
+- `Project(slug, name, keywords, source)`; `ProjectMatch(project, score)`.
+- `ProjectRegistry.discover()` merges `<vault>/Projects/*` (PARA — files and
+  directories, dotfiles and non-markdown skipped, a `keywords:` line in a note
+  read if present) with the `projects` CSV setting. A missing vault or folder
+  yields `[]`, never an error. Cached until `refresh()`.
+- `ProjectMatcher.match(text, *, threshold=0.35) -> ProjectMatch | None` and
+  `match_slug(text) -> str | None`.
+
+**Matching MUST stay deterministic and LLM-free.** It runs on every inbound
+email, task, and note, so it has to be cheap enough to run unconditionally and
+testable without a model. Scoring: an explicit `#slug` mention scores `1.0`;
+otherwise the best whole-word keyword hit is weighted by keyword length
+(saturating, so a long specific phrase outranks a short generic token) and taken
+against a fuzzy `difflib` similarity on the project name.
+
+**Wiring:** nullable indexed `project` column on `Task` and `FollowUp`;
+`TaskSpecialist` and `EmailSpecialist` accept an optional `matcher` (absent ⇒
+pre-Phase-4 behaviour); project-matched mail gets `+1` importance, still clamped
+at 5. Tagging is wrapped in `try/except` — it is a nicety, not a gate, and MUST
+NOT be able to block task capture or triage.
+
+### 11a.4 Wrike sync (`integrations/wrike.py`, `core/wrike_sync.py`)
+
+The client is async httpx against `https://www.wrike.com/api/v4`, Bearer-authed,
+lazily constructed. Wrike takes write parameters as **query-string** values, not
+a JSON body. `configured` is `bool(api_key.strip())`; every call
+`_require_configured()` first and raises `WrikeNotConfiguredError` otherwise.
+Tasks arriving without an `id` are skipped and logged rather than producing a
+row with an empty key.
+
+**Conflict policy — "Wrike wins, Loop pushes new":**
+
+| Situation | Resolution |
+|---|---|
+| In both, differs | remote wins — local row updated |
+| Only in Wrike | created locally, `source="wrike"` |
+| Only local, no `wrike_id` | pushed up (gated by `WRIKE_WRITE`) |
+| Completed locally, open in Wrike | completion pushed |
+| Completed in Wrike, open locally | completed locally |
+| Deleted in Wrike | `status="orphaned"` — **never deleted** |
+
+Rationale: Wrike is a *team* tool, so a colleague's edit there must not be
+silently reverted by one peer's laptop.
+
+`Task.status` therefore accepts a third value, `orphaned`. Since every existing
+query filters `status == "open"`, orphaned tasks drop out of the active lists
+automatically — intended: a task whose Wrike parent was deleted should stop
+nagging without being destroyed.
+
+`WrikeSync.sync(*, dry_run=False) -> SyncReport` **never raises**. An
+unconfigured key returns `SyncReport(configured=False)`; a failed listing or a
+per-task error is collected into `report.errors` and the run continues.
+`SyncReport.summary()` renders a one-line human summary.
+
+**Reading is not acting:** the autonomy gate governs writes only. A pull runs at
+any autonomy level; when pushes require approval, `report.push_blocked` is set
+and the pull result is still returned.
+
+### 11a.5 Voice-to-note (`integrations/transcribe.py`)
+
+- `Transcript(text, language, duration_seconds)`; falsy when the text is blank.
+- `Transcriber` Protocol: `available() -> bool`, `transcribe(path) -> Transcript`.
+- `FasterWhisperTranscriber` — local CTranslate2 Whisper, model lazily loaded.
+
+`faster-whisper` is an **optional extra** (`pip install -e ".[voice]"`) so the
+base install and Docker image stay light. When absent, `available()` is `False`
+and callers surface the install hint instead of a traceback.
+
+**Privacy invariant — audio is unconditionally `local_only`.** Voice memos are
+the most personal content Loop touches and the user cannot review each one
+before processing, so this is not a configurable default:
+
+- no cloud transcriber exists behind the `Transcriber` interface, and the design
+  forbids adding one;
+- `KnowledgeSpecialist.note_from_audio` formats the note with
+  `{"local_only": True, "source": "obsidian_private"}`, so the privacy gate
+  hard-blocks the cloud and fails closed if Ollama is down;
+- the note is written to `obsidian_private_vault_path` when configured, else the
+  main vault, gated by `NOTE_WRITE`.
+
+`integrations.telegram_bot.handle_voice_message(bot, file_id, knowledge)`
+downloads the memo to a temp file, files the note, and deletes the recording in
+a `finally` — Loop keeps the note, not the audio.
+
+### 11a.6 Metrics (`core/metrics.py`, `GET /metrics`)
+
+Aggregates only what Loop already records; adds no new collection.
+`MetricsCollector(memory)` exposes `llm_usage`, `task_metrics`,
+`follow_up_metrics`, `autonomy_metrics`, and `summary(days=30)`.
+
+The headline is the privacy figure — **"N% of requests served locally"** —
+because local-first is the product's central claim and a claim the user cannot
+verify is worth little. Every ratio goes through a guarded `_share`; percentiles
+handle samples of length 0 and 1. `DashboardMetrics.has_data` drives an explicit
+empty state. Rendering uses inline-width Tailwind bars — **no chart library**,
+per the no-JS-framework rule.
+
+### 11a.7 Schema migration (`MemoryStore._migrate`)
+
+Phase 4 adds columns to *existing* tables, and `create_all()` never alters an
+existing table, so an installed `data/loop.db` would silently lack them.
+`bootstrap()` therefore runs `_migrate()` after `create_all()`:
+
+1. inspect the live table names;
+2. for each mapped table that already exists, diff its columns against the ORM;
+3. `ALTER TABLE ... ADD COLUMN` for each missing one.
+
+**Additive only** — never drops, renames, or retypes. That constraint is what
+makes it safe to run unconditionally on every boot, and why a full migration
+tool (Alembic) is not warranted for a single-user SQLite file. Added columns are
+always nullable, since SQLite cannot add a `NOT NULL` column without a default.
 
 ---
 
@@ -643,6 +865,22 @@ independently testable:
   follow-up, each redirecting (303) back to its listing.
 - Every LLM call appears in `llm_usage_log` with a prompt *hash* (no content).
 
+Phase 4 additions:
+- `EMAIL_SEND` set to `act` still resolves to `approve` while
+  `max_autonomy_email_send` is `approve`, and the decision reports `capped`.
+- A corrupt `autonomy.<action>` preference falls back rather than raising.
+- `AutonomyGate.guard` raises `ApprovalRequiredError` and still writes an audit
+  row recording the blocked attempt.
+- `WrikeSync.sync()` with no API key returns `configured=False` and raises
+  nothing; a task deleted upstream becomes `orphaned`, never deleted.
+- A pull succeeds even when pushes are blocked by the autonomy level.
+- `note_from_audio` issues every LLM call with `local_only=True` and
+  `source="obsidian_private"`, and the Telegram handler deletes the recording
+  even when note creation fails.
+- `MetricsCollector` on an empty database returns zeros and `has_data is False`.
+- `bootstrap()` on a pre-Phase-4 `tasks` table adds the new columns and
+  preserves existing rows; running it repeatedly is a no-op.
+
 ---
 
 ## 14. Phased roadmap (historical context)
@@ -655,9 +893,14 @@ independently testable:
   logging; calendar conflict detection; email triage scoring; persistent
   conversation memory; free-form `loop ask`; interactive web dashboard v2;
   per-user packaging scripts; onboarding + this specification.
-- **Future** — full autonomous (approval-gated) follow-up sending; Wrike task
-  sync; multi-step planning; richer Teams/Telegram inbound handling; per-source
-  PII sanitisation before any cloud call.
+- **Phase 4** — autonomy levels (the second gate); weekly review; project-context
+  awareness; Wrike bidirectional sync; local voice-to-note; metrics dashboard;
+  additive schema migration; the first test suite.
+- **Future** — the Phase 1 email connectors (`scan_inboxes`, `draft_follow_up`,
+  `send_follow_up` remain `NotImplementedError`, so `EMAIL_SEND` autonomy gates
+  a transport that does not exist yet); the Telegram polling loop; multi-step
+  planning; per-source PII sanitisation before any cloud call; LLM-assisted
+  project matching if the deterministic matcher proves insufficient.
 
 ---
 
@@ -671,4 +914,10 @@ independently testable:
 - **Session** — a conversation thread keyed by `session_id`, expiring after
   `session_ttl_hours`.
 - **Instance** — one peer's fully isolated deployment of Loop.
+- **Autonomy gate** — the Phase 4 gate deciding whether Loop may act unattended;
+  orthogonal to the privacy gate and failing to *asking* rather than closed.
+- **Autonomy ceiling** — a per-action hard cap applied on top of the configured
+  level; only `EMAIL_SEND` has one today.
+- **Orphaned task** — a task whose Wrike parent was deleted upstream. Kept, not
+  destroyed, and dropped from the active lists.
 ```

@@ -100,6 +100,8 @@ ollama pull llama3.1:8b          # local chat/reasoning model
 ollama pull nomic-embed-text     # local embedding model (ChromaDB index)
 
 pip install -e .        # installs the `loop` CLI + all deps (chromadb, watchdog, botbuilder…)
+pip install -e ".[voice]"   # optional: local voice-to-note (faster-whisper)
+pip install -e ".[dev]"     # optional: pytest, ruff, mypy
 loop status
 loop briefing
 
@@ -140,10 +142,17 @@ Proactive reminders and follow-up prompts are sent via
 | `loop snooze <item> --hours N` | Snooze a reminder/follow-up | 1 |
 | `loop find "<query>"` | Semantic search over Obsidian | 2 |
 | `loop ask "<question>"` | Free-form query across all sources | 3 |
+| `loop autonomy` | Show how autonomously Loop may act, per action | 4 |
+| `loop autonomy-set <action> <level>` | Change one action's autonomy level | 4 |
+| `loop review` | Weekly review: what you finished, what slipped | 4 |
+| `loop sync [--dry-run]` | Bidirectional Wrike task sync | 4 |
+| `loop metrics [--days N]` | Local-vs-cloud, task and follow-up metrics | 4 |
+| `loop note-from-audio <path>` | Transcribe a voice memo into a vault note | 4 |
 
-> **Note:** Phase 1 (foundation) and Phase 2 (knowledge & tasks) are implemented.
-> `loop find` performs real semantic search once your vault is indexed and Ollama
-> is running. Phases 3–4 remain scaffolded with `TODO(phaseN)` markers.
+> **Note:** Phases 1–4 are implemented. Some Phase 1 connector stubs remain —
+> `EmailSpecialist.scan_inboxes`/`send_follow_up` and the Telegram polling loop
+> are still marked `TODO(phase1)`, so email *transport* is not wired even though
+> the triage, follow-up tracking, and autonomy gating around it are.
 
 ---
 
@@ -153,8 +162,8 @@ Proactive reminders and follow-up prompts are sent via
 |---|---|---|---|
 | **1 — Foundation** | Stop forgetting meetings & emails | ✅ complete | Scaffold, Ollama setup, Telegram bot, Gmail/Outlook + both calendars, meeting reminder engine, morning briefing, email follow-up tracker, SQLite state, CLI (status/briefing/snooze) |
 | **2 — Knowledge & Tasks** | Capture knowledge, never lose a task | ✅ complete | Obsidian watcher (watchdog), PARA + Zettelkasten formatter, ChromaDB + `nomic-embed-text` embeddings, `find` semantic search, chat task capture, end-of-day summary (17:30), Teams bot (Bot Framework), hard privacy gate, read-only web dashboard |
-| **3 — Depth & Peers** | Roll out to peers, get smarter | 🔜 planned | Per-user packaging, Anthropic fallback tuning, conflict detection, email triage scoring, conversation memory, `ask` command, interactive web UI |
-| **4 — Polish & Automation** | Act more autonomously | 🔜 planned | Autonomy levels, weekly review, project-context awareness, Wrike bidirectional sync, voice-to-note, metrics dashboard |
+| **3 — Depth & Peers** | Roll out to peers, get smarter | ✅ complete | Per-user packaging, Anthropic fallback tuning, conflict detection, email triage scoring, conversation memory, `ask` command, interactive web UI |
+| **4 — Polish & Automation** | Act more autonomously | ✅ complete | Autonomy levels (a second gate, orthogonal to privacy), weekly review, project-context awareness, Wrike bidirectional sync (remote-wins), local voice-to-note, metrics dashboard, first test suite |
 
 ---
 
@@ -171,6 +180,11 @@ All settings live in `.env` (see `config/.env.example`). Highlights:
 - **Cloud fallback:** `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
 - **Obsidian:** `OBSIDIAN_VAULT_PATH`
 - **Privacy:** `PRIVATE_VAULTS`, `PRIVATE_PERSONAL_CALENDAR`, `PRIVATE_TELEGRAM_PERSONAL`
+- **Autonomy (Phase 4):** `DEFAULT_AUTONOMY_LEVEL`, `MAX_AUTONOMY_EMAIL_SEND`
+- **Projects (Phase 4):** `PROJECTS`
+- **Weekly review (Phase 4):** `WEEKLY_REVIEW_DAY`, `WEEKLY_REVIEW_TIME`
+- **Wrike sync (Phase 4):** `WRIKE_SYNC_MINUTES`, `WRIKE_FOLDER_ID`
+- **Voice-to-note (Phase 4):** `WHISPER_MODEL_SIZE`, `WHISPER_DEVICE`, `WHISPER_COMPUTE_TYPE`
 
 Secrets are never committed — `.env`, `credentials.json`, and `token.json` are gitignored.
 
@@ -199,6 +213,57 @@ Loop is **local-first**. Every LLM request passes through the privacy gate in
 
 The result: **your private notes, personal calendar, and personal chats are
 processed locally and never sent to a third-party AI provider.**
+
+---
+
+## Autonomy
+
+Loop has a **second gate**, deliberately separate from the privacy gate:
+
+| Gate | Question | Failure mode |
+|---|---|---|
+| Privacy (`core/llm_router.py`) | *Which model may see this data?* | fails **closed** — raises `PrivacyError` |
+| Autonomy (`core/autonomy.py`) | *May Loop do this without asking?* | fails to **asking** |
+
+They are independent. A voice memo is private *and* safe to file automatically;
+an email to a colleague is not private but must never go out unattended. Using
+one as a proxy for the other would make both harder to reason about.
+
+Four levels, set per action (`email_send`, `task_create`, `wrike_write`,
+`note_write`, `calendar_write`, `notify`):
+
+| Level | Behaviour |
+|---|---|
+| `observe` | record only; never surface proactively |
+| `suggest` | surface a suggestion, prepare nothing |
+| `approve` | prepare the action, wait for your approval **(default)** |
+| `act` | execute autonomously, then log it |
+
+```bash
+loop autonomy                          # show the current table
+loop autonomy-set note_write act       # file voice notes without asking
+loop autonomy-set default suggest      # change the global default
+```
+
+**Outbound email has a hard ceiling.** `MAX_AUTONOMY_EMAIL_SEND` (default
+`approve`) is applied *on top of* whatever level is set, so Loop cannot be
+talked into sending mail unattended from the dashboard — lifting it is a
+deliberate edit to `.env`. Every gated action is recorded in `autonomy_audit`
+with the action, level, and outcome — never the content.
+
+---
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest          # 145 tests, hermetic: no network, no Ollama, no API keys
+ruff check .
+mypy .
+```
+
+Tests use temp SQLite databases and fakes throughout — nothing in the suite
+needs a running model, a vault, or a Wrike key.
 
 ---
 
