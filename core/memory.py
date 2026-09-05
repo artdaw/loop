@@ -513,6 +513,103 @@ class MemoryStore:
         return sorted({row for row in rows if row})
 
     # ------------------------------------------------------------------ #
+    # Aggregation (Phase 4) — weekly review and metrics
+    # ------------------------------------------------------------------ #
+    def activity_counts(self, window_start: datetime,
+                        window_end: datetime) -> dict:
+        """Aggregate activity within a datetime window.
+
+        One query pass used by both the weekly review and the metrics
+        dashboard, so the two always agree on what a number means.
+
+        ``tasks_overdue`` is deliberately *current* state rather than windowed:
+        what matters is what is late now, not what was late during the window.
+        """
+        from sqlalchemy import func
+
+        with self.session() as session:
+            tasks_created = session.scalar(
+                select(func.count(Task.id)).where(
+                    Task.created_at >= window_start, Task.created_at <= window_end
+                )
+            ) or 0
+
+            tasks_completed = session.scalar(
+                select(func.count(Task.id)).where(
+                    Task.completed_at.is_not(None),
+                    Task.completed_at >= window_start,
+                    Task.completed_at <= window_end,
+                )
+            ) or 0
+
+            tasks_overdue = session.scalar(
+                select(func.count(Task.id)).where(
+                    Task.status == "open",
+                    Task.due_date.is_not(None),
+                    Task.due_date < date.today(),
+                )
+            ) or 0
+
+            follow_up_rows = session.execute(
+                select(FollowUp.status, func.count(FollowUp.id)).group_by(FollowUp.status)
+            ).all()
+            by_status = {status: count for status, count in follow_up_rows}
+
+            llm_rows = session.execute(
+                select(LLMUsageLog.backend, func.count(LLMUsageLog.id))
+                .where(
+                    LLMUsageLog.timestamp >= window_start,
+                    LLMUsageLog.timestamp <= window_end,
+                )
+                .group_by(LLMUsageLog.backend)
+            ).all()
+            by_backend = {backend: count for backend, count in llm_rows}
+
+            autonomy_actions = session.scalar(
+                select(func.count(AutonomyAudit.id)).where(
+                    AutonomyAudit.timestamp >= window_start,
+                    AutonomyAudit.timestamp <= window_end,
+                )
+            ) or 0
+
+            project_rows = session.execute(
+                select(Task.project, func.count(Task.id))
+                .where(
+                    Task.project.is_not(None),
+                    Task.created_at >= window_start,
+                    Task.created_at <= window_end,
+                )
+                .group_by(Task.project)
+            ).all()
+            top_projects = sorted(
+                ((slug, count) for slug, count in project_rows if slug),
+                key=lambda pair: (-pair[1], pair[0]),
+            )[:5]
+
+        return {
+            "tasks_created": tasks_created,
+            "tasks_completed": tasks_completed,
+            "tasks_overdue": tasks_overdue,
+            "follow_ups_resolved": by_status.get("sent", 0),
+            "follow_ups_ignored": by_status.get("ignored", 0),
+            "follow_ups_pending": by_status.get("waiting", 0) + by_status.get("drafted", 0),
+            "llm_local": by_backend.get("local", 0),
+            "llm_cloud": by_backend.get("cloud", 0),
+            "autonomy_actions": autonomy_actions,
+            "top_projects": top_projects,
+        }
+
+    def backdate_task(self, task_id: int, created: date) -> bool:
+        """Move a task's creation date. Used by tests and data repair."""
+        with self.session() as session:
+            task = session.get(Task, task_id)
+            if task is None:
+                return False
+            task.created_at = datetime.combine(created, datetime.min.time())
+            session.commit()
+            return True
+
+    # ------------------------------------------------------------------ #
     # Autonomy audit (Phase 4)
     # ------------------------------------------------------------------ #
     def log_autonomy_action(self, *, action: str, level: str, executed: bool,

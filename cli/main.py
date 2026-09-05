@@ -251,6 +251,33 @@ def sync(
         typer.secho(f"  ! {error}", fg=typer.colors.RED)
 
 
+@app.command()
+def review(
+    weeks_ago: int = typer.Option(
+        0, "--weeks-ago", "-w",
+        help="0 = this week, 1 = last week, and so on.",
+    ),
+    no_narrative: bool = typer.Option(
+        False, "--no-narrative",
+        help="Skip the LLM reflection and print only the statistics.",
+    ),
+) -> None:
+    """Print the weekly review: what you finished, what slipped, what it cost."""
+    from core.llm_router import LLMRouter
+    from specialists.review import WeeklyReview
+
+    store = _store()
+    router = None if no_narrative else LLMRouter(memory=store)
+    weekly = WeeklyReview(memory=store, router=router)
+
+    try:
+        stats = weekly.collect(weeks_ago=weeks_ago)
+        typer.echo(weekly.compose(stats, with_narrative=not no_narrative))
+    except Exception as exc:  # noqa: BLE001 - surface a friendly message
+        typer.secho(f"Review failed: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+
+
 def _store():
     """Build a bootstrapped MemoryStore for the CLI."""
     from core.memory import MemoryStore
