@@ -1,0 +1,30 @@
+{% if error %}
+  <div class="p-4 rounded-lg bg-red-50 text-red-700 text-sm">
+    Search failed: {{ error }}<br />
+    <span class="text-red-500">Is Ollama running for embeddings, and has the vault been indexed?</span>
+  </div>
+{% elif query and not results %}
+  <p class="text-slate-400 text-sm">No results for "{{ query }}".</p>
+{% elif results %}
+  <div class="space-y-3">
+    {% for hit in results %}
+    {% set meta = hit.metadata or {} %}
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+      <div class="flex items-center gap-2 mb-1">
+        {% if hit.kind == "email" %}
+          <span class="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Email</span>
+          <span class="font-medium">{{ meta.get("subject") or meta.get("title") or "(untitled)" }}</span>
+          <span class="text-xs text-slate-400">{{ meta.get("sender", "") }} {{ meta.get("date", "") }}</span>
+        {% else %}
+          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Note</span>
+          <span class="font-medium">{{ meta.get("title") or "(untitled)" }}</span>
+          <span class="text-xs text-slate-400">{{ meta.get("date", "") }}</span>
+        {% endif %}
+      </div>
+      <p class="text-sm text-slate-600">{{ hit.document[:280] }}{% if hit.document|length > 280 %}…{% endif %}</p>
+    </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="text-slate-400 text-sm">Type above to search your knowledge base.</p>
+{% endif %}
