@@ -3,16 +3,23 @@
 **Read this file, `IMPLEMENTATION_PLAN.md`, and `ACCEPTANCE_MATRIX.md` to resume without the
 original conversation.** Verify each claim against the worktree before trusting it.
 
-**Branch:** `vnext-implementation` · **Last updated:** 2026-09-05 · **Stage:** A (A1–A6 done, A7 next)
+**Branch:** `vnext-implementation` · **Last updated:** 2026-09-06 · **Stage:** A **complete** (A1–A9); work package 2 (ModelGateway) next
 
 ---
 
 ## Honest summary
 
+**Specification update, 2026-09-06:** target is now 1.3 with nine normative
+documents and 196 scenarios. The 12 new LG scenarios are pending. Previously
+recorded evidence remains unchanged; this documentation update ran no runtime
+tests. Read [agent-stack.md](specification/agent-stack.md) before further agent
+implementation. Continue A7, then introduce ModelGateway before model-driven
+Stage B and the required LangGraph/generic runners during C.
+
 Planning artefacts exist, the baseline is recorded, and **milestone A1 (foundations) is complete
 and verified**, and **A2 (schema, versioned migrations, legacy upgrade)** is complete and
 verified, and **A3 (intake), A4 (task service) and A5 (triggers/DST/catch-up)** are complete and
-verified. **15 of 184 acceptance scenarios are now verified** with named tests: T02, T03, T11–T15,
+verified. **15 of 196 acceptance scenarios are recorded as verified** with named tests: T02, T03, T11–T15,
 D02, D03, D05, D07–D11. The rest remain pending. The archived Phase 4 system remains green and is the
 migration source, not the target.
 
@@ -34,7 +41,11 @@ Do not read the Phase 4 README/spec completion claims as evidence for this targe
 | A4 task service | **done** | `tests/vnext/test_tasks.py` 28 passed — T03, T11–T14 |
 | A5 triggers + DST + catch-up | **done** | `tests/vnext/test_triggers.py` 24 passed — D07–D10 |
 | A6 job queue, leases, fencing | **done** | `tests/vnext/test_jobs.py` 37 passed — D02, D03, D05, D11 |
-| A7 notifications + outbox | **next** | — |
+| A7 notifications + outbox | **done** | `tests/vnext/test_outbox.py` 26 passed — D04, D06, T08 |
+| A8 loop run, single leader | **done** | `test_stage_a_e2e.py` — D15, D16, D17 |
+| A9 Stage A end-to-end | **done** | `test_stage_a_e2e.py` 23 passed — T01, T09, T10, D01 |
+| **Stage A** | **complete** | 535 tests pass; ruff + mypy clean |
+| WP2 ModelGateway (LangChain) | **next** | — |
 | A3–A9 | pending | — |
 | Stages B–E | pending | — |
 
@@ -48,10 +59,10 @@ mypy .              Success: no issues found in 61 source files
 uv.lock             ABSENT
 python              3.12.11
 
-# current, after A6
-pytest              486 passed (288 legacy + 198 vnext), 1 warning
+# current, after Stage A (2026-09-06)
+pytest              535 passed (288 legacy + 247 vnext), 1 warning
 ruff check .        All checks passed!
-mypy .              Success: no issues found in 90 source files
+mypy .              Success: no issues found in 94 source files
 uv.lock             present, validated with --locked
 ```
 
@@ -157,24 +168,48 @@ relabelled: it catches crashes under contention and proves nothing about atomici
 invariant, disable the mechanism and confirm the test fails. A test that passes either way is
 worse than no test, because it reads as evidence.
 
+## A7–A9 delivered — Stage A complete
+
+| File | Contract | Scenarios verified |
+|---|---|---|
+| `loop/runtime/outbox.py` | runtime §8 delivery truth | **D04**, **D06**, **T08** |
+| `loop/runtime/service.py` | runtime §2/§7 sweep + leader lease | **D15**, **D16**, **D17** |
+| `tests/vnext/test_stage_a_e2e.py` | the required demo | **T01**, **T09**, **T10**, **D01** |
+
+`queued`/`sent`/`unknown` are kept strictly apart. An uncertain send becomes `unknown` and is
+never automatically resent, because a resend risks a duplicate message and a "sent" claim would be
+false. Single-leader is a database lease, not a module flag — a web reload re-imports the module
+and a second bot alias is a different process, so an in-process guard sees neither.
+
+**Two tests that proved nothing, caught by mutation testing.** The D01 restart tests passed even
+with occurrence-key suppression removed, because a fired one-shot trigger is disabled and never
+seen again — they proved the disable, not exactly-once. The replacement reproduces the real crash
+window (firing committed, disable not) and fails when suppression is removed. That test in turn was
+*itself* vacuous at first: the replacement service was not the leader, so no sweep ran; it now
+advances past the dead leader's lease and asserts it actually swept.
+
+**Standing method:** every concurrency, crash or recovery test is verified by disabling its
+mechanism and confirming the test fails. Mutations applied so far: job compare-and-set, outbox
+no-resend, outbox preflight, leader check, occurrence suppression.
+
 ## Exact next step
 
-Implement **A7 — notifications and the delivery outbox** (runtime §8):
+**Work package 2 (CLAUDE_EXECUTION.md): `loop/ai/model_gateway.py`** — the shared LangChain
+policy adapter, required *before* any model-driven Stage B work.
 
-1. `loop/runtime/notifications.py`: candidates carry category, subject, occurrence, destination,
-   `not_before`, expiry; the Notification Manager (not each agent) decides delivery, and rechecks
-   current task/routine state immediately before sending.
-2. `loop/runtime/outbox.py`: notification + outbox row commit **transactionally with the result**
-   (**D04** — a crash after the DB change but before dispatch must still send, once).
-3. **D06**: a send that times out after the provider may have accepted becomes `unknown` — never a
-   blind resend and never a false "sent".
-4. **T08**: completing a task cancels its pending firing/notification atomically; an outbox
-   preflight prevents a stale send. **T09**: snooze produces one replacement occurrence and one
-   feedback record. **T10**: dismiss suppresses without completing.
+1. Inspect `pyproject.toml`/`uv.lock` first: legacy LangChain/LangGraph ranges and direct provider
+   SDKs are still declared, and a retained legacy module may import them. Do not remove a
+   dependency a legacy module still uses; upgrade through compatible provider packages.
+2. `ModelGateway` wraps `ChatOllama`/`ChatAnthropic` behind one policy adapter. Privacy and budget
+   middleware land **before** any model-driven workflow.
+3. **LG03**: a local-only input — including derived summaries and child output — must produce zero
+   cloud calls and no content in tracing or audit logs.
+4. **LG05**: concurrent children share one root budget.
+5. Response length and latency must not be treated as confidence for automatic cloud fallback
+   (CLAUDE.md, required architecture).
 
-Then **A8** (`loop run`, single leader — D15, D16) and **A9** (end-to-end demo).
+Relevant sections: `docs/specification/agent-stack.md`; runtime §3 (privacy), §2 (budgets);
+CLAUDE.md "Required architecture".
 
-Relevant spec sections: runtime §8 (notification policy, delivery truth), §7 (catch-up);
-acceptance §2 (T08–T10), §3 (D04–D06). (runtime §4, interfaces §9, acceptance §1):
-
+ (runtime §4, interfaces §9, acceptance §1):
 

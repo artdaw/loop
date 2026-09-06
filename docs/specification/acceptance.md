@@ -316,3 +316,23 @@ provider absence is acceptable only when unsupported/unconfigured status and its
 failure-path contracts pass; the system must not advertise live integration.
 Feature scaffolds, model promises, a UI mockup, or happy-path unit tests alone do
 not meet this contract.
+
+## 11. Standard agent stack
+
+Required by [agent-stack.md](agent-stack.md). Exercise real framework execution
+with injected fake models, tools and temporary persistent checkpointers.
+
+| ID | Given / action | Required result |
+|---|---|---|
+| LG01 | Agent pack executes | Real create_agent and LangChain model adapter path produces validated output |
+| LG02 | Add two unrelated agent/workflow packs | Both run without coordinator, channel or core schema edits |
+| LG03 | Private context and local model failure | No cloud call, including child, summary and repair paths |
+| LG04 | Model requests undeclared tool or forged authority | Wrapper refuses; no effect and no authority escalation |
+| LG05 | Parallel children and schema repairs reach budget limit | One shared budget enforces the cap without multiplied retries |
+| LG06 | Restart during graph execution | Persistent checkpoint resumes pinned work with isolated child state |
+| LG07 | Crash before or after domain effect commit | Replay consults stable operation key; no duplicate effect or false success |
+| LG08 | Approval interrupt, restart and authenticated resume | Same bound approval; expired, altered or unauthorized decisions cannot execute |
+| LG09 | Disable pack or cancel paused run before resume | Current cancellation and authority checked before tool/effect |
+| LG10 | Upgrade graph or capability while run is paused | Pinned version resumes or visibly pauses if unavailable; no silent substitution |
+| LG11 | Private checkpoint backup, restore and forgetting | Consistent paired DB backup; source retention applies; no remote content trace |
+| LG12 | No events, or configured model lacks required features | No idle inference; unsupported model features reported without implicit cloud use |

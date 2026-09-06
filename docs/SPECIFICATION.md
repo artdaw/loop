@@ -1,6 +1,6 @@
 # Loop vNext — a persistent personal support team
 
-**Version:** 1.2 · **Specification date:** 2026-09-05 · **Status:** target design,
+**Version:** 1.3 · **Specification date:** 2026-09-06 · **Status:** target design,
 not an implementation-complete claim.
 
 Loop turns conversations and changing circumstances into durable commitments,
@@ -15,8 +15,8 @@ and knows when to leave the user alone.
 
 ## 1. How to use this specification
 
-This document and the seven contracts below jointly define the target system.
-An implementing LLM MUST read all eight before designing storage or writing
+This document and the eight contracts below jointly define the target system.
+An implementing LLM MUST read all nine before designing storage or writing
 runtime behavior. They are sufficient to reconstruct the target without the
 old conversation or the current source code.
 
@@ -30,6 +30,7 @@ old conversation or the current source code.
 | 6 | [Weather capability](specification/capabilities/weather.md) | Local-source preference, multiple forecasts, evidence, warnings and preparation |
 | 7 | [Travel itinerary capability](specification/capabilities/travel.md) | Personalized trip research, comparison, feasibility and monitoring |
 | 8 | [Acceptance contract](specification/acceptance.md) | Concrete scenarios and release criteria |
+| 9 | [Agent stack contract](specification/agent-stack.md) | Required LangChain/LangGraph integration, generic runners, checkpoints and migration |
 
 MUST/MUST NOT are required. SHOULD allows a documented tradeoff; MAY is optional.
 All command/API/schema examples in these documents describe the target unless
@@ -63,8 +64,9 @@ legacy behavior; this package governs vNext.
 7. Report any deviation explicitly. Never fill gaps with invented personal facts,
    live credentials, assumed permissions, or silent vault restructuring.
 
-No model/framework is the specification. Equivalent implementations are acceptable
-only if schemas, observable behavior, invariants, and conformance tests hold.
+LangChain 1.x and LangGraph 1.x are the required agent stack. Model providers remain
+replaceable behind the policy gateway. Framework substitution requires an explicit
+specification revision; preserving observable behavior alone is insufficient.
 
 ## 2. What the user should experience
 
@@ -305,12 +307,12 @@ core/
   capabilities/    pack registry, schemas, discovery and generic invocation
   memory.py        repositories and transaction boundaries
   migrations/      versioned SQLite upgrades
-  orchestrator.py  coordinator; sole specialist wiring point
-  team.py          work assignments, dependencies, budgets
+  orchestrator.py  stable LangGraph coordinator and generic capability dispatch
+  team.py          domain work records, dependency validation, shared budgets
   policy.py        authoritative rule loading, validation, revisions
   privacy.py       label propagation and destination enforcement
   autonomy.py      action authority, ceilings, bound approvals
-  llm_router.py    only model egress point
+  model_gateway.py policy adapter over LangChain chat models; only model egress
   scheduler.py     durable triggers, occurrences, clock/reconciliation
   executor.py      leases, idempotency, operation outcomes
   notifications.py candidate selection, quiet hours, outbox policy
@@ -332,17 +334,18 @@ core depends on domain ports, not concrete integrations or higher layers;
 integrations/delivery know nothing about specialists. The composition root wires
 concrete adapters. If retaining core/orchestrator.py as the existing wiring point,
 isolate imports there rather than spreading cross-layer construction.
-LLM calls use one router; optional SDKs load lazily. Read-only commands must work
+LLM calls use the shared ModelGateway; optional providers load lazily. Read-only commands must work
 without a model, Chroma, or every provider configured.
 
 SQLite + local files suffice for the first single-owner deployment. Temporal,
 distributed workers, separate message brokers, and a graph database are optional
 future choices when scale demands them, not prerequisites. Graph relationships
-can initially be typed references and wiki links. A multi-agent framework may
-implement bounded planning, but its in-memory state must not replace the durable
-runtime or its executor. This follows the useful distinction between predictable
-workflows and model-directed agents; the specific architecture here is a design
-choice. [Anthropic's agent engineering guide](https://www.anthropic.com/engineering/building-effective-agents).
+can initially be typed references and wiki links. LangGraph owns durable agent
+execution; domain repositories own commitments, operations and delivery truth.
+The [agent stack contract](specification/agent-stack.md) defines their recovery
+boundary. New capabilities use generic runners; domain names MUST NOT become
+coordinator branches. The implementation package is `loop/`; the tree above
+describes responsibilities, not a requirement to retain legacy top-level modules.
 
 ## 6. How proactivity works
 

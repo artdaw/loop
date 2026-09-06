@@ -1,11 +1,14 @@
 # Implementation handoff for Claude Code or another coding agent
 
-This is an implementation brief for **Loop vNext specification 1.2**, not a claim
+This is an implementation brief for **Loop vNext specification 1.3**, not a claim
 that the target has been built. Use the existing local repository so the current,
 possibly uncommitted specifications and user changes are available.
 
 In Claude Code, open this repository and ask:
 “Read @docs/IMPLEMENTATION_HANDOFF.md and execute the implementation brief.”
+
+For the concrete 1.3 migration sequence and complete starting prompt, use
+[CLAUDE_EXECUTION.md](CLAUDE_EXECUTION.md). Its work packages refine the plan below.
 
 For a planning-only review, explicitly ask for that instead; leave Plan Mode before
 expecting code changes. Claude Code's documented workflow supports repository
@@ -15,7 +18,7 @@ exploration, planning, implementation and verification.
 ## Implementation brief
 
 Implement the complete Loop vNext system described by docs/SPECIFICATION.md and
-all seven contracts in its reading-order table. The objective includes stages A–E,
+all eight contracts in its reading-order table. The objective includes stages A–E,
 weather.local, travel.itinerary, and the shared capability extension mechanism.
 Work on the existing implementation, retaining useful components and migrating
 persistent data safely. Continue beyond planning into implementation and verification.
@@ -23,7 +26,7 @@ persistent data safely. Continue beyond planning into implementation and verific
 ### Establish the baseline
 
 1. Read repository instructions, including CLAUDE.md and any applicable AGENTS.md.
-   Read the eight normative specification documents and the capability template.
+   Read the nine normative specification documents and the capability template.
    New target contracts supersede conflicting historical phase notes; archived
    specification/old README completion claims are not proof of implementation.
 2. Inspect git status and existing code/tests. Preserve all pre-existing changes.
@@ -33,11 +36,12 @@ persistent data safely. Continue beyond planning into implementation and verific
    failures separately from regressions. Follow the repository's RTK command rule.
    Use uv and Python >=3.12. A missing lockfile must be generated and validated
    before commands requiring --locked can succeed.
-4. Create docs/IMPLEMENTATION_PLAN.md with concrete milestones/files and dependency
+4. Update the existing docs/IMPLEMENTATION_PLAN.md with concrete milestones/files and dependency
    order, docs/IMPLEMENTATION_STATUS.md for resumable progress, and
    docs/ACCEPTANCE_MATRIX.md mapping every scenario ID to implementation and tests.
-   There are currently 184 specified scenarios; enumerate them from acceptance.md.
-   They are requirements to implement and test, not 184 already-passing tests.
+   There are currently 196 specified scenarios; enumerate them from acceptance.md.
+   They are requirements to implement and test, not already-passing tests.
+   Preserve existing plan/status/matrix files and verified evidence when resuming.
 
 ### Implement in dependency order
 
@@ -66,6 +70,15 @@ this objective. Useful preparation for later stages may happen earlier, but do
 not replace end-to-end implementation with empty classes or mocked success responses.
 
 ### Execution and verification rules
+
+- Follow [agent-stack.md](specification/agent-stack.md): LangChain chat adapters
+  behind ModelGateway, create_agent for agent packs, LangGraph coordinator/workflow
+  runners, persistent checkpointer and bound interrupt/resume. No custom agent
+  loop, domain-specific coordinator branches or direct provider SDK bypass.
+- Introduce ModelGateway before model-driven Stage B work. Stage C must cover
+  LG01–LG12 through real framework execution with fake models; keep Stage A's
+  deterministic persistence and scheduling. Graph checkpoints do not replace
+  the operation ledger, approvals, task state or delivery receipts.
 
 - Models interpret and propose; deterministic runtime code owns effects, state,
   timing, privacy and evidence checks. All entry points share those services.

@@ -4,6 +4,11 @@ Status: normative target for Loop vNext. Read with [the main specification](../S
 [the vault contract](vault.md), [interfaces](interfaces.md), and [acceptance tests](acceptance.md).
 MUST and MUST NOT are requirements; SHOULD permits a documented reason to differ.
 
+Agent execution MUST use the [agent stack contract](agent-stack.md): LangGraph
+coordinates execution and checkpoints; these services remain authoritative for
+domain state, scheduling and effects. Replay uses the same operation ledger,
+approvals, shared budgets and cancellation checks.
+
 ## 1. Service and team model
 
 Loop is one persistent service for one authenticated owner. Its specialists are

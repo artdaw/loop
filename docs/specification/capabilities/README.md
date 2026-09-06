@@ -177,6 +177,12 @@ without adding bespoke routes. Domain UIs may enrich this later.
 
 ## 5. Shared execution and persistence
 
+The [agent stack contract](../agent-stack.md) defines the required generic runners:
+agent mode uses LangChain create_agent, workflow mode compiles to LangGraph,
+and adapter mode invokes trusted code or an optional registered subgraph. New
+packs MUST NOT require domain branches in the coordinator. Typed tool wrappers
+inject trusted runtime context and route every call through the shared invoker.
+
 The runtime supplies injected ports for models, Clock, labelled retrieval,
 application services, provider clients, VaultGateway, operations/outbox and
 artifact storage. Plugins cannot open arbitrary files, dispatch raw Telegram

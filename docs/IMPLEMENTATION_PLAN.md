@@ -1,8 +1,19 @@
-# Loop vNext 1.2 — implementation plan
+# Loop vNext 1.3 — implementation plan
 
-**Branch:** `vnext-implementation` · **Started:** 2026-09-05 · **Spec:** `docs/SPECIFICATION.md` + 7 contracts
+**Branch:** `vnext-implementation` · **Started:** 2026-09-05 · **Spec:** `docs/SPECIFICATION.md` + 8 contracts
 **Companion documents:** [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) (resumable progress) ·
-[`ACCEPTANCE_MATRIX.md`](ACCEPTANCE_MATRIX.md) (184 scenarios → code → tests)
+[`ACCEPTANCE_MATRIX.md`](ACCEPTANCE_MATRIX.md) (196 scenarios → code → tests)
+
+## Specification 1.3 amendment — 2026-09-06
+
+Preserve the recorded Stage A work. Before B7, introduce the LangChain ModelGateway
+and verify privacy enforcement. Stage C additionally implements the required
+[agent stack](specification/agent-stack.md): stable LangGraph coordinator,
+create_agent runner, declarative workflow compiler, typed registry tool wrappers,
+SQLite checkpointing, approval interrupts and versioned recovery. C1–C8 must cover
+LG01–LG12 as well as their existing IDs. E7 must include coordinated backup/restore
+of domain and checkpoint databases. These additions remain pending; historical
+baseline and completed milestone evidence below are not new verification claims.
 
 ## 0. Baseline recorded before any change
 

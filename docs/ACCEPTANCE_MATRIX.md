@@ -1,4 +1,4 @@
-# Acceptance matrix — 184 scenarios
+# Acceptance matrix — 196 scenarios
 
 **Source:** `docs/specification/acceptance.md` (enumerated, not invented). **Branch:** `vnext-implementation`
 
@@ -10,8 +10,8 @@ A green test count is not coverage: a row is `verified` only when its named test
 
 | Stage | Section | Scenarios | verified | implemented | pending |
 |---|---|---:|---:|---:|---:|
-| A | 2. Commitments and everyday interaction | 15 | 7 | 0 | 8 |
-| A | 3. Time, durability and delivery | 17 | 8 | 0 | 9 |
+| A | 2. Commitments and everyday interaction | 15 | 11 | 0 | 4 |
+| A | 3. Time, durability and delivery | 17 | 14 | 0 | 3 |
 | B | 4. Knowledge and vault fidelity | 32 | 0 | 0 | 32 |
 | C | 5. Team coordination, privacy and control | 23 | 0 | 0 | 23 |
 | D | 6. Proactivity and learning | 21 | 0 | 0 | 21 |
@@ -19,7 +19,8 @@ A green test count is not coverage: a row is `verified` only when its named test
 | D | 8. Weather from multiple sources | 24 | 0 | 0 | 24 |
 | C | 9. Capability extensibility | 14 | 0 | 0 | 14 |
 | E | 10. Build, migration, operations and release | 14 | 0 | 0 | 14 |
-| — | **Total** | **184** | **15** | **0** | **169** |
+| C/E | 11. Standard agent stack | 12 | 0 | 0 | 12 |
+| — | **Total** | **196** | **25** | **0** | **171** |
 
 
 ## 2. Commitments and everyday interaction
@@ -28,16 +29,16 @@ Stage **A** · planned milestones **A3–A4, A7**
 
 | ID | Given / action | Required result | Milestone | Implementation | Test | Status |
 |---|---|---|---|---|---|---|
-| T01 | At 2026-09-05 09:00 Europe/Berlin, “Remind me tomorrow at 9 to call the repai… | One ready task, one trigger for 2026-09-06T07:00:00Z; reply includes local date/time… | A3–A4 | — | — | pending |
+| T01 | At 2026-09-05 09:00 Europe/Berlin, “Remind me tomorrow at 9 to call the repai… | One ready task, one trigger for 2026-09-06T07:00:00Z; reply includes local date/time… | A9 | `loop/services/tasks.py + loop/runtime/triggers.py` | `test_stage_a_e2e.py::test_t01_*` | verified |
 | T02 | Replay the same Telegram update 3 times | Same accepted result, one task/trigger, one user acknowledgement occurrence | A3 | `loop/runtime/intake.py` | `test_intake.py::test_t02_*` | verified |
 | T03 | “Find a better approach to insurance” without timing | Task retained without invented due date; no unrequested timer | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t03_*` | verified |
 | T04 | “Remind me later to call” | Task saved, plan needs_input, one timing question, no false scheduled claim | A3–A4 | — | — | pending |
 | T05 | Answer T04 with “tomorrow at 10” | Same task gains trigger; clarification resolves; no duplicate task | A3–A4 | — | — | pending |
 | T06 | “Remember to call” versus “remember that production takes six weeks” | First is task intent; second is exact knowledge capture; unresolved reminder time sta… | A3–A4 | — | — | pending |
 | T07 | “Remember this fact and remind me Friday at 10 to verify it” on a non-Friday | Separate capture and linked task; each has its own truthful result | A3–A4 | — | — | pending |
-| T08 | Complete a task before its reminder sends | Task done and pending firing/notification cancelled atomically; outbox preflight prev… | A3–A4 | — | — | pending |
-| T09 | Snooze a delivered reminder by 1 hour, replay button | One replacement occurrence at requested time; one feedback record; task remains open | A3–A4 | — | — | pending |
-| T10 | Dismiss a reminder | Notification suppressed, task not completed | A3–A4 | — | — | pending |
+| T08 | Complete a task before its reminder sends | Task done and pending firing/notification cancelled atomically; outbox preflight prev… | A7 | `loop/runtime/outbox.py` | `test_stage_a_e2e.py::test_t08_*, test_outbox.py::test_t08_*` | verified |
+| T09 | Snooze a delivered reminder by 1 hour, replay button | One replacement occurrence at requested time; one feedback record; task remains open | A9 | `loop/runtime/triggers.py` | `test_stage_a_e2e.py::test_t09_*` | verified |
+| T10 | Dismiss a reminder | Notification suppressed, task not completed | A9 | `loop/runtime/outbox.py` | `test_stage_a_e2e.py::test_t10_*` | verified |
 | T11 | Reopen completed task | Explicit versioned ready state; old reminders do not reactivate implicitly | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t11_*` | verified |
 | T12 | Extract a meeting action owned by another attendee | Remains that attendee's action; never silently assigned to owner or messaged external… | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t12_*` | verified |
 | T13 | Unsupported execution request, e.g. booking through unavailable adapter | Task preserved; missing capability and next step visible; no success claim | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t13_*` | verified |
@@ -50,12 +51,12 @@ Stage **A** · planned milestones **A5–A8**
 
 | ID | Given / action | Required result | Milestone | Implementation | Test | Status |
 |---|---|---|---|---|---|---|
-| D01 | Kill/restart after storing task+trigger | Reminder still becomes due and is processed once | A5–A8 | — | — | pending |
+| D01 | Kill/restart after storing task+trigger | Reminder still becomes due and is processed once | A9 | `loop/runtime/service.py` | `test_stage_a_e2e.py::test_d01_a_crash_between_firing_and_disabling_does_not_double_fire` | verified |
 | D02 | Two workers claim the same due job concurrently | One current lease/fencing token can execute and commit | A6 | `loop/runtime/jobs.py` | `test_jobs.py::test_d02_a_claim_that_loses_the_race_returns_none` | verified |
 | D03 | Worker loses lease during model call, then returns | Stale worker cannot commit or start a new effect | A6 | `loop/runtime/jobs.py` | `test_jobs.py::test_d03_*` | verified |
-| D04 | Crash after DB state change, before outbox dispatch | Pending notification survives and sends under same identity | A5–A8 | — | — | pending |
+| D04 | Crash after DB state change, before outbox dispatch | Pending notification survives and sends under same identity | A7 | `loop/runtime/outbox.py` | `test_outbox.py::test_d04_*` | verified |
 | D05 | Provider definitely rejects before sending, then recovers | Bounded retry and one acknowledged effect | A6 | `loop/runtime/jobs.py` | `test_jobs.py::test_d05_*` | verified |
-| D06 | Telegram accepts send but client times out without receipt | unknown delivery state; no blind automatic resend or false sent claim | A5–A8 | — | — | pending |
+| D06 | Telegram accepts send but client times out without receipt | unknown delivery state; no blind automatic resend or false sent claim | A7 | `loop/runtime/outbox.py` | `test_outbox.py::test_d06_*` | verified |
 | D07 | Local schedule 02:30 on 2026-03-29 Europe/Berlin | Resolve to 03:30 local / 01:30Z; record gap policy | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d07_*` | verified |
 | D08 | Local schedule 02:30 on 2026-10-25 Europe/Berlin | One firing at fold=0 / 00:30Z; no second 02:30 reminder | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d08_*` | verified |
 | D09 | Host resumes 2 hours after explicit reminder | One delayed reminder within 24-hour catch-up window | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d09_*` | verified |
@@ -64,9 +65,9 @@ Stage **A** · planned milestones **A5–A8**
 | D12 | Change timezone of floating routine | Recompute future occurrences only; explicit-zone task unchanged | A5–A8 | — | — | pending |
 | D13 | Expired approval or changed target version | No execution; actionable stale/conflict response | A5–A8 | — | — | pending |
 | D14 | SIGTERM then forced stop during operation | Recovery manifest and pending work retained; fresh process can reconcile | A5–A8 | — | — | pending |
-| D15 | Scheduler import in web reload or a second bot alias | No duplicate timer/intake leader or repeated polling | A5–A8 | — | — | pending |
-| D16 | Model unavailable while a deterministic reminder is due | Reminder sends without invoking cloud or requiring model recovery | A5–A8 | — | — | pending |
-| D17 | Idle service, no routines, fake clock advances 24 hours | Zero model calls; bounded deterministic sweeps only | A5–A8 | — | — | pending |
+| D15 | Scheduler import in web reload or a second bot alias | No duplicate timer/intake leader or repeated polling | A8 | `loop/runtime/service.py` | `test_stage_a_e2e.py::test_d15_*` | verified |
+| D16 | Model unavailable while a deterministic reminder is due | Reminder sends without invoking cloud or requiring model recovery | A8 | `loop/runtime/service.py` | `test_stage_a_e2e.py::test_d16_*` | verified |
+| D17 | Idle service, no routines, fake clock advances 24 hours | Zero model calls; bounded deterministic sweeps only | A8 | `loop/runtime/service.py` | `test_stage_a_e2e.py::test_d17_*` | verified |
 
 ## 4. Knowledge and vault fidelity
 
@@ -268,3 +269,22 @@ Stage **E** · planned milestones **E4–E7**
 | O12 | 500-source synthetic load and timer workload | Report persistence/claim latency, hardware, queue depth; compare main §9 targets | E4–E7 | — | — | pending |
 | O13 | Current service halted/asleep | Status reports stale heartbeat and catch-up limits, not guaranteed continuous availab… | E4–E7 | — | — | pending |
 | O14 | Full acceptance run | Hermetic tests, schema checks, lint/type checks, build and restart tests pass | E4–E7 | — | — | pending |
+
+## 11. Standard agent stack
+
+Specification 1.3 additions; no implementation or verification is claimed.
+
+| ID | Given / action | Required result | Milestone | Implementation | Test | Status |
+|---|---|---|---|---|---|---|
+| LG01 | Agent pack executes | Real create_agent and LangChain model adapter path produces validated output | C1–C8 / E7 | — | — | pending |
+| LG02 | Add two unrelated agent/workflow packs | Both run without coordinator, channel or core schema edits | C1–C8 / E7 | — | — | pending |
+| LG03 | Private context and local model failure | No cloud call, including child, summary and repair paths | C1–C8 / E7 | — | — | pending |
+| LG04 | Model requests undeclared tool or forged authority | Wrapper refuses; no effect and no authority escalation | C1–C8 / E7 | — | — | pending |
+| LG05 | Parallel children and schema repairs reach budget limit | One shared budget enforces the cap without multiplied retries | C1–C8 / E7 | — | — | pending |
+| LG06 | Restart during graph execution | Persistent checkpoint resumes pinned work with isolated child state | C1–C8 / E7 | — | — | pending |
+| LG07 | Crash before or after domain effect commit | Replay consults stable operation key; no duplicate effect or false success | C1–C8 / E7 | — | — | pending |
+| LG08 | Approval interrupt, restart and authenticated resume | Same bound approval; expired, altered or unauthorized decisions cannot execute | C1–C8 / E7 | — | — | pending |
+| LG09 | Disable pack or cancel paused run before resume | Current cancellation and authority checked before tool/effect | C1–C8 / E7 | — | — | pending |
+| LG10 | Upgrade graph or capability while run is paused | Pinned version resumes or visibly pauses if unavailable; no silent substitution | C1–C8 / E7 | — | — | pending |
+| LG11 | Private checkpoint backup, restore and forgetting | Consistent paired DB backup; source retention applies; no remote content trace | C1–C8 / E7 | — | — | pending |
+| LG12 | No events, or configured model lacks required features | No idle inference; unsupported model features reported without implicit cloud use | C1–C8 / E7 | — | — | pending |

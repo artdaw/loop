@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Recompute the acceptance-matrix summary from its own rows.
 
+The expected scenario count is read from `specification/acceptance.md`, so a
+spec amendment that adds IDs fails loudly here instead of silently leaving the
+matrix short.
+
 Run after changing any row's status:
 
     uv run python scripts/acceptance_summary.py
@@ -36,8 +40,15 @@ def main() -> int:
             tally[section][match.group(2)] += 1
             ids.add(match.group(1))
 
-    if len(ids) != 184:
-        print(f"ERROR: found {len(ids)} scenario IDs, expected 184", file=sys.stderr)
+    # The count comes from the specification, not a constant here, so a spec
+    # amendment (1.2 → 1.3 added LG01–LG12) cannot silently drift from the matrix.
+    spec = MATRIX.parent / "specification" / "acceptance.md"
+    expected = len({m.group(1) for m in
+                    re.finditer(r"^\| *([A-Z]{1,3}\d{2,3}) *\|", spec.read_text(),
+                                re.MULTILINE)})
+    if len(ids) != expected:
+        print(f"ERROR: matrix has {len(ids)} scenario IDs, acceptance.md has "
+              f"{expected}", file=sys.stderr)
         return 1
 
     out = []
@@ -54,15 +65,16 @@ def main() -> int:
         elif line.startswith("| — | **Total**"):
             v = sum(t.get("verified", 0) for t in tally.values())
             i = sum(t.get("implemented", 0) for t in tally.values())
-            out.append(f"| — | **Total** | **184** | **{v}** | **{i}** | **{184 - v - i}** |")
+            out.append(f"| — | **Total** | **{expected}** | **{v}** | **{i}** | "
+                       f"**{expected - v - i}** |")
         else:
             out.append(line)
 
     MATRIX.write_text("\n".join(out) + "\n")
     verified = sum(t.get("verified", 0) for t in tally.values())
-    print(f"184 scenarios: {verified} verified, "
-          f"{sum(t.get('implemented', 0) for t in tally.values())} implemented, "
-          f"{184 - verified - sum(t.get('implemented', 0) for t in tally.values())} pending")
+    implemented = sum(t.get("implemented", 0) for t in tally.values())
+    print(f"{expected} scenarios: {verified} verified, {implemented} implemented, "
+          f"{expected - verified - implemented} pending")
     return 0
 
 

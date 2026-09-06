@@ -525,3 +525,14 @@ rules. Reindex with corrected privacy labels after migration, then compare sourc
 counts, ledger identity, open tasks, and next approved wakes. Keep the old database
 backup and [historical specification](../archive/SPECIFICATION-phase-4-2026-09-05.md)
 for traceability; it is not required to reconstruct the target.
+
+## Agent execution storage and diagnostics (specification 1.3)
+
+Apply [agent-stack.md](agent-stack.md) for graph storage, lifecycle and recovery.
+The default local checkpointer is data/graph-checkpoints.sqlite, separate from
+SQLAlchemy domain storage. Backup/restore must pause both writers and include
+both databases with matching version/hash metadata. Status must expose run and
+checkpoint references, pinned graph/package versions, pending approvals and
+missing-version recovery blocks without displaying private checkpoint content.
+No additional provider credentials are needed for the graph itself. Remote content
+tracing remains disabled by default; environment flags must not bypass privacy.
