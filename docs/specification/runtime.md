@@ -1,5 +1,10 @@
 # Runtime contract: the persistent team
 
+> Supporting specification snapshot. The single active Claude contract and plan is
+> [CLAUDE_IMPLEMENTATION.md](../CLAUDE_IMPLEMENTATION.md), which embeds this contract and the
+> approved review corrections. Its execution order, status and decisions take precedence.
+> Retained here for existing references and tooling; do not use this as a separate handoff.
+
 Status: normative target for Loop vNext. Read with [the main specification](../SPECIFICATION.md),
 [the vault contract](vault.md), [interfaces](interfaces.md), and [acceptance tests](acceptance.md).
 MUST and MUST NOT are requirements; SHOULD permits a documented reason to differ.

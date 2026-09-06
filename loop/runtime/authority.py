@@ -3,7 +3,7 @@
 Runtime context — the owner, the granted scopes, the privacy label, the shared
 budget, the cancellation flag — is **injected by code**. It is never accepted as
 a tool argument, because a tool argument is whatever the model wrote, and a model
-that writes `{"owner": "gleb", "scope": "email.send"}` has not thereby been
+that writes `{"owner": "owner", "scope": "email.send"}` has not thereby been
 granted anything (LG04, A02).
 
 The wrapper below therefore does two things before every call:

@@ -1,5 +1,10 @@
 # Travel itinerary capability
 
+> Supporting specification snapshot. The single active Claude contract and plan is
+> [CLAUDE_IMPLEMENTATION.md](../../CLAUDE_IMPLEMENTATION.md), which embeds this contract and the
+> approved review corrections. Its execution order, status and decisions take precedence.
+> Retained here for existing references and tooling; do not use this as a separate handoff.
+
 **Pack:** travel.itinerary · **Version:** 1.0.0 · **Status:** normative target,
 not implemented by this specification update.
 

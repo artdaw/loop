@@ -1,5 +1,10 @@
 # Weather from multiple sources, with local preference
 
+> Supporting specification snapshot. The single active Claude contract and plan is
+> [CLAUDE_IMPLEMENTATION.md](../../CLAUDE_IMPLEMENTATION.md), which embeds this contract and the
+> approved review corrections. Its execution order, status and decisions take precedence.
+> Retained here for existing references and tooling; do not use this as a separate handoff.
+
 **Pack:** weather.local · **Version:** 1.0.0 · **Status:** normative target,
 not a live integration. It replaces the single-provider assumption while keeping
 the weather.forecast operation name used by routines and travel.

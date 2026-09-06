@@ -63,8 +63,23 @@ loop = "cli.main:main"
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["core", "specialists", "integrations", "delivery", "cli", "web", "config"]
+[tool.setuptools.packages.find]
+# A find directive rather than a hand-written list: the previous static list
+# predated the `loop` package and silently shipped a wheel without it, which
+# only shows up when the wheel is installed outside this checkout (O02).
+# Patterns end in `*` so new subpackages are included without another edit.
+include = [
+    "loop*",
+    "core*", "specialists*", "integrations*", "delivery*", "cli*", "web*",
+    "config*",
+]
+exclude = ["tests*", "docs*", "scripts*", "data*"]
+
+[tool.setuptools.package-data]
+# The dashboard renders from these; a wheel without them imports fine and then
+# fails at the first page request.
+"web" = ["templates/*.html"]
+"config" = [".env.example"]
 
 [tool.ruff]
 line-length = 100

@@ -1,0 +1,261 @@
+"""Capability objects: versioned domain state without core schema edits (EX13).
+
+A new pack needs somewhere to keep its own records. The two obvious answers are
+both wrong: a new core table per domain means every pack edits the core schema,
+and an untyped blob means nothing validates until something breaks in
+production.
+
+So a capability object is a row in one shared store, whose payload is validated
+against a schema the pack registered, and whose writes carry `expected_version`.
+Adding a domain adds a schema, not a migration.
+
+**Privacy propagates without a bespoke path.** The label travels with the object,
+and a read merges it into the caller's context like any other source — a pack
+cannot widen a label by storing data and reading it back.
+
+Schema changes are versioned, and a **breaking** change needs an explicit
+migration and authority (EX11). Rollback restores local state; it does not undo
+effects that already left the machine, and saying otherwise would be the most
+dangerous kind of reassurance.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any
+
+from loop.core.errors import Conflict, InvalidInput, ValidationFailed
+from loop.core.privacy import PrivacyLabel
+
+logger = logging.getLogger(__name__)
+
+
+class ChangeKind(str, Enum):
+    COMPATIBLE = "compatible"
+    BREAKING = "breaking"
+
+    @property
+    def needs_migration(self) -> bool:
+        return self is ChangeKind.BREAKING
+
+
+@dataclass
+class ObjectSchema:
+    """A pack's registered payload schema, at one version."""
+
+    pack_id: str
+    object_type: str
+    schema_version: int
+    required: frozenset[str] = frozenset()
+    properties: dict[str, str] = field(default_factory=dict)
+    effects: frozenset[str] = frozenset()
+
+    @property
+    def key(self) -> str:
+        return f"{self.pack_id}:{self.object_type}"
+
+    def validate(self, payload: dict[str, Any]) -> list[str]:
+        problems = [f"missing required field {name!r}"
+                    for name in sorted(self.required) if name not in payload]
+        for name, value in sorted(payload.items()):
+            expected = self.properties.get(name)
+            if expected is None:
+                problems.append(f"unknown field {name!r}")
+            elif not _matches(value, expected):
+                problems.append(
+                    f"field {name!r} should be {expected}, got "
+                    f"{type(value).__name__}")
+        return problems
+
+
+_TYPES: dict[str, type | tuple[type, ...]] = {
+    "string": str, "integer": int, "number": (int, float),
+    "boolean": bool, "array": list, "object": dict}
+
+
+def _matches(value: Any, expected: str) -> bool:
+    python_type = _TYPES.get(expected)
+    if python_type is None:
+        return True
+    if expected in ("integer", "number") and isinstance(value, bool):
+        return False          # bool is an int subclass; a flag is not a count
+    return isinstance(value, python_type)
+
+
+def diff_schemas(old: ObjectSchema, new: ObjectSchema) -> tuple[ChangeKind, list[str]]:
+    """Classify a schema change (EX11).
+
+    Breaking means existing stored objects would no longer validate, or an
+    effect was added. A new *optional* field is compatible; a new required one
+    is not, because every row already written lacks it.
+    """
+    reasons: list[str] = []
+
+    for name in sorted(new.required - old.required):
+        reasons.append(f"new required field {name!r}")
+    for name in sorted(set(old.properties) - set(new.properties)):
+        reasons.append(f"removed field {name!r}")
+    for name in sorted(set(old.properties) & set(new.properties)):
+        if old.properties[name] != new.properties[name]:
+            reasons.append(f"field {name!r} changed type "
+                           f"{old.properties[name]} → {new.properties[name]}")
+    for effect in sorted(new.effects - old.effects):
+        reasons.append(f"new effect {effect!r}")
+
+    return (ChangeKind.BREAKING if reasons else ChangeKind.COMPATIBLE), reasons
+
+
+@dataclass
+class CapabilityObject:
+    id: str
+    pack_id: str
+    object_type: str
+    schema_version: int
+    payload: dict[str, Any]
+    version: int = 1
+    privacy: PrivacyLabel = field(default_factory=PrivacyLabel)
+
+
+class CapabilityObjectStore:
+    """One shared store for every pack's domain objects."""
+
+    def __init__(self) -> None:
+        self._schemas: dict[tuple[str, int], ObjectSchema] = {}
+        self._latest: dict[str, int] = {}
+        self._objects: dict[str, CapabilityObject] = {}
+
+    # ------------------------------------------------------------------ #
+    # Schemas
+    # ------------------------------------------------------------------ #
+    def register_schema(self, schema: ObjectSchema, *,
+                        migration: str = "", authority_event_id: str = ""
+                        ) -> ObjectSchema:
+        """Register a schema version, refusing an unauthorised breaking change."""
+        current_version = self._latest.get(schema.key)
+        if current_version is not None:
+            current = self._schemas[(schema.key, current_version)]
+            if schema.schema_version <= current.schema_version:
+                raise InvalidInput(
+                    "A registered schema version is immutable; publish a new "
+                    "version instead.",
+                    details={"key": schema.key,
+                             "existing": current.schema_version})
+            kind, reasons = diff_schemas(current, schema)
+            if kind.needs_migration and not (migration and authority_event_id):
+                raise ValidationFailed(
+                    "This is a breaking schema change and needs an explicit "
+                    "migration and authority.",
+                    details={"key": schema.key, "reasons": reasons})
+
+        self._schemas[(schema.key, schema.schema_version)] = schema
+        self._latest[schema.key] = schema.schema_version
+        return schema
+
+    def schema(self, key: str, version: int | None = None) -> ObjectSchema | None:
+        resolved = version if version is not None else self._latest.get(key)
+        if resolved is None:
+            return None
+        return self._schemas.get((key, resolved))
+
+    # ------------------------------------------------------------------ #
+    # Objects
+    # ------------------------------------------------------------------ #
+    def create(self, *, object_id: str, pack_id: str, object_type: str,
+               payload: dict[str, Any],
+               privacy: PrivacyLabel | None = None) -> CapabilityObject:
+        schema = self._require_schema(f"{pack_id}:{object_type}")
+        problems = schema.validate(payload)
+        if problems:
+            raise ValidationFailed("The payload does not match the registered "
+                                   "schema.",
+                                   details={"problems": problems})
+
+        record = CapabilityObject(
+            id=object_id, pack_id=pack_id, object_type=object_type,
+            schema_version=schema.schema_version, payload=dict(payload),
+            privacy=privacy or PrivacyLabel())
+        self._objects[object_id] = record
+        return record
+
+    def get(self, object_id: str) -> CapabilityObject | None:
+        return self._objects.get(object_id)
+
+    def update(self, object_id: str, *, expected_version: int,
+               payload: dict[str, Any]) -> CapabilityObject:
+        """Apply a change, refusing a stale writer (EX13)."""
+        record = self._objects.get(object_id)
+        if record is None:
+            raise InvalidInput(f"no capability object {object_id!r}")
+        if record.version != expected_version:
+            raise Conflict(
+                "This object changed since you read it.",
+                details={"object_id": object_id,
+                         "expected_version": expected_version,
+                         "current_version": record.version})
+
+        schema = self._require_schema(f"{record.pack_id}:{record.object_type}")
+        merged = {**record.payload, **payload}
+        problems = schema.validate(merged)
+        if problems:
+            raise ValidationFailed("The updated payload does not match the "
+                                   "registered schema.",
+                                   details={"problems": problems})
+
+        record.payload = merged
+        record.version += 1
+        return record
+
+    def read_with_privacy(self, object_id: str, *,
+                          context: PrivacyLabel) -> tuple[dict[str, Any],
+                                                          PrivacyLabel]:
+        """Read a payload and merge its label into the caller's context.
+
+        Storing private data and reading it back must not launder the label —
+        the merge is the same one every other source goes through.
+        """
+        record = self._objects.get(object_id)
+        if record is None:
+            raise InvalidInput(f"no capability object {object_id!r}")
+        return dict(record.payload), PrivacyLabel.merge([context, record.privacy])
+
+    def _require_schema(self, key: str) -> ObjectSchema:
+        schema = self.schema(key)
+        if schema is None:
+            raise InvalidInput(f"no registered schema for {key!r}")
+        return schema
+
+
+@dataclass
+class RollbackResult:
+    """What a rollback restored, and what it could not (EX11)."""
+
+    restored_version: int
+    preserved_objects: int
+    irreversible_effects: list[str] = field(default_factory=list)
+
+    @property
+    def fully_reversed(self) -> bool:
+        return not self.irreversible_effects
+
+
+def rollback_schema(store: CapabilityObjectStore, key: str, *,
+                    to_version: int,
+                    external_effects: list[str] | None = None) -> RollbackResult:
+    """Roll a pack back to an earlier schema version.
+
+    Local state is restored; anything that already left the machine is not.
+    A rollback that reported "reverted" after an email was sent would be
+    describing a state that does not exist anywhere.
+    """
+    target = store.schema(key, to_version)
+    if target is None:
+        raise InvalidInput(f"no schema {key!r} at version {to_version}")
+
+    store._latest[key] = to_version                     # noqa: SLF001
+    preserved = sum(1 for obj in store._objects.values()  # noqa: SLF001
+                    if f"{obj.pack_id}:{obj.object_type}" == key)
+
+    return RollbackResult(restored_version=to_version, preserved_objects=preserved,
+                          irreversible_effects=list(external_effects or []))

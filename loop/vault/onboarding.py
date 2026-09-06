@@ -24,30 +24,23 @@ from pathlib import Path
 import yaml
 
 from loop.vault.gateway import VaultGateway, WriteMode
+from loop.vault.layout import (
+    DEFAULT_LAYOUT as _DEFAULT_LAYOUT,
+)
+from loop.vault.layout import (
+    LAYOUT_VERSION,
+    VaultLayout,
+    normalise_layout_version,
+)
 
 logger = logging.getLogger(__name__)
 
 #: v1 folder names that must never be created inside a v2 vault (vault §1).
 FORBIDDEN_ROOTS = ("Projects", "Areas", "Resources", "Archive", "System", "Inbox")
 
-#: The layout mapping an installer records, with no username assumptions.
-DEFAULT_LAYOUT = {
-    "raw": "0-raw",
-    "inbox": "0-raw/inbox",
-    "ledger": "0-raw/_ledger.md",
-    "concepts": "1-wiki/concepts",
-    "entities": "1-wiki/entities",
-    "topics": "1-wiki/topics",
-    "projects": "2-projects",
-    "outputs": "3-output",
-    "profile": "_mem/profile.md",
-    "goals": "_mem/goals.md",
-    "people": "_mem/people",
-    "compile_rules": "_ctx/rules/compile.md",
-    "frontmatter_rules": "_ctx/rules/frontmatter.md",
-    "naming_rules": "_ctx/rules/naming.md",
-    "loop_context": "_ctx/loop",
-}
+#: The layout an installer records. Loop's shipped default lives in
+#: `loop.vault.layout`; a vault may override any of it in its own manifest.
+DEFAULT_LAYOUT = dict(_DEFAULT_LAYOUT)
 
 #: Files onboarding may propose. Never written without an explicit apply.
 PROPOSED_FILES = (
@@ -84,7 +77,7 @@ class OnboardingReport:
 
     @property
     def is_v2(self) -> bool:
-        return self.layout_version == "glebos-v2"
+        return normalise_layout_version(self.layout_version) == LAYOUT_VERSION
 
     def summary(self) -> str:
         mode = "dry run" if self.dry_run else "applied"
@@ -97,8 +90,10 @@ class OnboardingReport:
 class VaultOnboarding:
     """Inspects a vault and proposes Loop's own context files."""
 
-    def __init__(self, *, gateway: VaultGateway) -> None:
+    def __init__(self, *, gateway: VaultGateway,
+                 layout: VaultLayout | None = None) -> None:
         self._gateway = gateway
+        self._layout = layout or VaultLayout()
 
     # ------------------------------------------------------------------ #
     # Inspection
@@ -108,17 +103,17 @@ class VaultOnboarding:
         if not self._gateway.exists("CLAUDE.md"):
             return "unknown"
         text = self._gateway.read_text("CLAUDE.md")
-        if "v2" in text and "0-raw" in text:
-            return "glebos-v2"
+        if "v2" in text and self._layout.path("raw") in text:
+            return LAYOUT_VERSION
         return "unknown"
 
     def inspect(self) -> OnboardingReport:
         """Read the vault and report. Writes nothing."""
         report = OnboardingReport(root=str(self._gateway.root),
                                   layout_version=self.detect_layout(),
-                                  layout=dict(DEFAULT_LAYOUT))
+                                  layout=self._layout.describe())
 
-        for key, relative in DEFAULT_LAYOUT.items():
+        for key, relative in self._layout.describe().items():
             if self._gateway.exists(relative):
                 report.present.append(key)
             else:
@@ -222,7 +217,7 @@ class VaultOnboarding:
     def _proposed_body(self, relative: str) -> str:
         if relative.endswith("manifest.yaml"):
             return yaml.safe_dump(
-                {"schema_version": 1, "layout": "glebos-v2",
+                {"schema_version": 1, "layout": LAYOUT_VERSION,
                  "paths": dict(DEFAULT_LAYOUT)},
                 sort_keys=False, allow_unicode=True)
         name = Path(relative).stem

@@ -18,8 +18,16 @@ WORKDIR /app
 COPY . .
 RUN uv pip install --system .
 
+# Run as a dedicated unprivileged user. A container that runs as root shares
+# that root with the host through any bind mount, so a bug that writes outside
+# /app writes as uid 0 on the host too.
+RUN useradd --create-home --uid 10001 loop
+
 # Local runtime data (SQLite + ChromaDB) — mounted as a volume in compose.
-RUN mkdir -p /app/data
+# Created before the USER switch so it can be chowned to the run user.
+RUN mkdir -p /app/data && chown -R loop:loop /app
+
+USER loop
 
 # Default: run the orchestrator daemon. Override for the CLI or web UI.
 #   docker compose run --rm app loop status

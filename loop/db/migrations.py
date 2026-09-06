@@ -88,6 +88,185 @@ def _r0002_legacy_provenance(conn: Connection) -> None:
         conn.execute(text("ALTER TABLE tasks ADD COLUMN legacy_source VARCHAR(64)"))
 
 
+def _rename_if_shape_differs(conn: Connection, name: str, *,
+                             required_column: str) -> None:
+    """Move a colliding pre-existing table aside, keeping its rows.
+
+    A name collision with an older schema is invisible to `CREATE TABLE IF NOT
+    EXISTS`: it succeeds, changes nothing, and every later statement written
+    against the new columns fails or — worse — writes into the old ones.
+    """
+    inspector = inspect(conn)
+    if name not in set(inspector.get_table_names()):
+        return
+    columns = {c["name"] for c in inspector.get_columns(name)}
+    if required_column in columns:
+        return                      # already the vNext shape
+    legacy_name = f"legacy_{name}"
+    if legacy_name in set(inspector.get_table_names()):
+        return                      # a previous run already moved it
+    conn.execute(text(f"ALTER TABLE {name} RENAME TO {legacy_name}"))
+    logger.info("Renamed colliding table %s to %s", name, legacy_name)
+
+
+def _r0003_extension_state(conn: Connection) -> None:
+    """Tables for state that previously lived only in process memory.
+
+    Each of these services passed its tests and lost everything on restart,
+    which for three of them is a correctness problem rather than an
+    inconvenience: an unremembered spend reservation lets the daily cloud
+    budget be spent twice, a forgotten notification count resets the daily cap
+    at every restart, and a routine whose activation is not recorded is either
+    silently inactive or silently running without recorded authority.
+    """
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS routines (
+            id TEXT PRIMARY KEY,
+            slug TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            activation_event_id TEXT,
+            document TEXT NOT NULL,
+            source_hash TEXT NOT NULL,
+            missing_json TEXT NOT NULL DEFAULT '[]',
+            privacy TEXT,
+            version INTEGER NOT NULL DEFAULT 1,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )"""))
+
+    # Phase 4 shipped its own `preferences` table with a different shape, and
+    # `CREATE TABLE IF NOT EXISTS` would silently keep it — then the index below
+    # fails on a column that does not exist. Same trap as revision 0000: move
+    # the old table aside rather than dropping it, so its rows stay inspectable.
+    _rename_if_shape_differs(conn, "preferences", required_column="state")
+
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS preferences (
+            id TEXT PRIMARY KEY,
+            key TEXT NOT NULL,
+            scope TEXT NOT NULL DEFAULT 'global',
+            value_json TEXT NOT NULL,
+            state TEXT NOT NULL,
+            evidence_json TEXT NOT NULL DEFAULT '[]',
+            observed_from BIGINT,
+            observed_to BIGINT,
+            sample_count INTEGER NOT NULL DEFAULT 0,
+            review_after BIGINT,
+            supersedes TEXT,
+            rationale TEXT NOT NULL DEFAULT '',
+            derivative_refs_json TEXT NOT NULL DEFAULT '[]',
+            privacy TEXT,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )"""))
+    # One active explicit/confirmed value per key and scope (runtime §data).
+    conn.execute(text("""
+        CREATE UNIQUE INDEX IF NOT EXISTS ix_preferences_active
+        ON preferences (key, scope)
+        WHERE state IN ('explicit', 'confirmed')"""))
+
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS preference_rejections (
+            id TEXT PRIMARY KEY,
+            subject_ref TEXT NOT NULL,
+            shift_minutes INTEGER NOT NULL,
+            rejected_at BIGINT NOT NULL
+        )"""))
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS forgotten_preferences (
+            key TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            forgotten_at BIGINT NOT NULL,
+            PRIMARY KEY (key, scope)
+        )"""))
+
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS capability_schemas (
+            pack_id TEXT NOT NULL,
+            object_type TEXT NOT NULL,
+            schema_version INTEGER NOT NULL,
+            required_json TEXT NOT NULL DEFAULT '[]',
+            properties_json TEXT NOT NULL DEFAULT '{}',
+            effects_json TEXT NOT NULL DEFAULT '[]',
+            is_latest INTEGER NOT NULL DEFAULT 1,
+            migration TEXT NOT NULL DEFAULT '',
+            authority_event_id TEXT NOT NULL DEFAULT '',
+            created_at BIGINT NOT NULL,
+            PRIMARY KEY (pack_id, object_type, schema_version)
+        )"""))
+
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS capability_objects (
+            id TEXT PRIMARY KEY,
+            pack_id TEXT NOT NULL,
+            object_type TEXT NOT NULL,
+            schema_version INTEGER NOT NULL,
+            payload_json TEXT NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            privacy TEXT,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )"""))
+    conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_capability_objects_type
+        ON capability_objects (pack_id, object_type)"""))
+
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS spend_reservations (
+            id TEXT PRIMARY KEY,
+            day TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            estimated_usd REAL NOT NULL,
+            actual_usd REAL,
+            state TEXT NOT NULL,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )"""))
+    conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_spend_reservations_day
+        ON spend_reservations (day)"""))
+
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS notification_deliveries (
+            id TEXT PRIMARY KEY,
+            category TEXT NOT NULL,
+            subject_ref TEXT NOT NULL,
+            occurrence_key TEXT NOT NULL DEFAULT '',
+            local_date TEXT NOT NULL,
+            sent_at BIGINT NOT NULL
+        )"""))
+    conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_notification_deliveries_day
+        ON notification_deliveries (local_date, category)"""))
+
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS remote_links (
+            provider TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            remote_id TEXT NOT NULL,
+            object_type TEXT NOT NULL,
+            local_id TEXT NOT NULL,
+            remote_version TEXT NOT NULL DEFAULT '',
+            sync_base_json TEXT NOT NULL DEFAULT '{}',
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL,
+            PRIMARY KEY (provider, account_id, remote_id)
+        )"""))
+    conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS ix_remote_links_local
+        ON remote_links (provider, local_id)"""))
+
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS export_scopes (
+            id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            project_ref TEXT NOT NULL,
+            object_types_json TEXT NOT NULL DEFAULT '[]',
+            created_at BIGINT NOT NULL
+        )"""))
+
+
 #: Ordered revisions. Append only; never edit a shipped entry.
 REVISIONS: tuple[Revision, ...] = (
     Revision("0000_rename_legacy", "move colliding Phase 4 tables aside",
@@ -95,6 +274,8 @@ REVISIONS: tuple[Revision, ...] = (
     Revision("0001_initial", "vNext core schema", _r0001_initial),
     Revision("0002_legacy_provenance", "explicit legacy provenance marker",
              _r0002_legacy_provenance),
+    Revision("0003_extension_state", "persist routines, preferences, capability "
+             "objects, spend and notification state", _r0003_extension_state),
 )
 
 HEAD = REVISIONS[-1].id

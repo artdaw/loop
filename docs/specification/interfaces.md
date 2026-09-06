@@ -1,5 +1,10 @@
 # Interfaces, configuration, and operation
 
+> Supporting specification snapshot. The single active Claude contract and plan is
+> [CLAUDE_IMPLEMENTATION.md](../CLAUDE_IMPLEMENTATION.md), which embeds this contract and the
+> approved review corrections. Its execution order, status and decisions take precedence.
+> Retained here for existing references and tooling; do not use this as a separate handoff.
+
 Status: normative target for Loop vNext. Commands and endpoints below are
 **required target interfaces**, not a claim that they exist in today's checkout.
 Read [the main specification](../SPECIFICATION.md) and [runtime](runtime.md).
@@ -28,7 +33,7 @@ A research answer stays in conversational state unless the user asks to save it
 or activates a research-session capture preference.
 
 By default an explicit “remember this fact” or /remember authorizes raw capture
-and a bounded single-source compile under current GlebOS rules, once registration
+and a bounded single-source compile under current the vault rules, once registration
 succeeds. It does not authorize external research, a whole-vault sweep, publication,
 or arbitrary project changes. “Just capture, don't compile” stops after registration.
 Return the capture acknowledgement promptly and report compilation separately when
@@ -383,7 +388,7 @@ Required target settings, uppercase environment names, case-insensitive:
 | WEB_HOST, WEB_PORT | 127.0.0.1, 8000 |
 | LOOP_API_TOKEN | empty initially; init generates a secret in private deployment storage |
 | MAX_AUTONOMY_EMAIL_SEND | approve; deployment ceiling |
-| PRIVATE_VAULTS | empty legacy list; GlebOS is local_only by default |
+| PRIVATE_VAULTS | empty legacy list; the vault is local_only by default |
 | PRIVATE_PERSONAL_CALENDAR, PRIVATE_TELEGRAM_PERSONAL | true, true; disabling never strips existing labels |
 | MAX_ACTIVE_ASSIGNMENTS, MAX_LOCAL_INFERENCE | 2, 1 |
 | JOB_LEASE_SECONDS, JOB_HEARTBEAT_SECONDS | 60, 20; heartbeat < lease / 2 |
@@ -444,8 +449,8 @@ Target development workflow:
 
 ```bash
 uv sync --locked --extra dev
-uv run loop init --vault ~/Claude_Cowork/GlebOS --dry-run
-uv run loop init --vault ~/Claude_Cowork/GlebOS --apply
+uv run loop init --vault ~/vault --dry-run
+uv run loop init --vault ~/vault --apply
 uv run loop doctor
 uv run loop run
 ```

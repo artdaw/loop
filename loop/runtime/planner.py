@@ -25,14 +25,16 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from loop.agents.roles import ROLE_IDS
 from loop.core.errors import InvalidInput, ValidationFailed
 from loop.core.ids import content_hash, new_id
 
 logger = logging.getLogger(__name__)
 
 #: Registry role IDs (runtime §1). A plan naming anything else is invalid.
-ROLES = ("coordinator", "commitments", "scribe", "compiler", "seeker",
-         "daily_life", "reviewer")
+#: Imported rather than restated: three copies of the list drift, and the one
+#: that drifts is whichever validator gets edited least.
+ROLES = ROLE_IDS
 
 #: Fields a plan step may carry. Anything else is rejected.
 ALLOWED_STEP_FIELDS = frozenset({

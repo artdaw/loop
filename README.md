@@ -4,7 +4,7 @@
 > Local-first, cloud-optional. One isolated instance per person.
 
 The **[Loop vNext specification](docs/SPECIFICATION.md)** defines the proposed
-persistent agent team, durable tasks and reminders, GlebOS knowledge workflows,
+persistent agent team, durable tasks and reminders, the vault knowledge workflows,
 proactive routines, and learning. Its contracts cover
 [the vault](docs/specification/vault.md), [runtime](docs/specification/runtime.md),
 [interfaces and deployment](docs/specification/interfaces.md), and
@@ -16,7 +16,10 @@ and prefers suitable local meteorological services. Both use the
 [shared extension contract](docs/specification/capabilities/README.md) and
 [starter template](docs/specification/capabilities/template/README.md).
 To implement the full target with Claude Code or another coding agent, use the
-[implementation handoff](docs/IMPLEMENTATION_HANDOFF.md).
+[single Claude implementation document](docs/CLAUDE_IMPLEMENTATION.md).
+It includes the approved architecture review, complete contracts, remaining work
+and progress ledger. Superseded execution documents are preserved in
+[the dated archive](docs/archive/pre-consolidation-2026-09-06/README.md).
 Specification 1.3 standardizes the [agent stack](docs/specification/agent-stack.md)
 on LangChain and LangGraph, with generic capability runners and durable recovery.
 This is the target design; the legacy setup and feature descriptions below do

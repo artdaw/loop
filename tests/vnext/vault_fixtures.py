@@ -1,6 +1,6 @@
-"""Synthetic GlebOS fixtures (acceptance §1).
+"""Synthetic vault fixtures (acceptance §1).
 
-The real vault at ``~/Claude_Cowork/GlebOS`` is **read-only during development**
+A real vault is **read-only during development**
 and is never touched by tests. Everything here builds a temporary vault with the
 same shape, including the awkward cases that a tidy fixture would hide:
 
@@ -26,7 +26,7 @@ LEDGER_HEADER = ("| source | batch | added | status | compiled | pages produced 
 
 #: Mirrors the observed vault's entry point (vault §1): it names the v2 layout
 #: and the numbered folders, which is what layout detection reads.
-ROOT_CLAUDE_MD = """# GlebOS
+ROOT_CLAUDE_MD = """# Vault
 
 Layout v2: source → wiki → output. This replaces the earlier PARA-folder design.
 

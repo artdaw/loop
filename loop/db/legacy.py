@@ -170,10 +170,16 @@ def migrate_legacy(engine: Engine, *, clock: Clock | None = None,
             "follow-ups counted but not copied: vNext models them as tasks with "
             "waiting_on, which needs the Stage A task service (A4)")
 
-    if _has_table(engine, "preferences"):
+    # Revision 0003 moves a Phase 4 `preferences` table aside, exactly as 0000
+    # does for `tasks`. Read whichever name still holds the legacy rows.
+    preferences_table = ("legacy_preferences"
+                         if _has_table(engine, "legacy_preferences")
+                         else "preferences")
+    if _has_table(engine, preferences_table) and "value" in _columns(
+            engine, preferences_table):
         with engine.connect() as conn:
             prefs = conn.execute(
-                text("SELECT key, value FROM preferences")).all()
+                text(f"SELECT key, value FROM {preferences_table}")).all()
         autonomy = [p for p in prefs if str(p[0]).startswith("autonomy.")]
         report.preferences = len(prefs) - len(autonomy)
         report.autonomy_settings = len(autonomy)

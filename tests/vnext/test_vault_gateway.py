@@ -24,7 +24,7 @@ from tests.vnext.vault_fixtures import build_minimal_vault
 
 @pytest.fixture
 def vault(tmp_path):
-    return build_minimal_vault(tmp_path / "GlebOS")
+    return build_minimal_vault(tmp_path / "vault")
 
 
 @pytest.fixture

@@ -1,15 +1,29 @@
-# GlebOS contract: knowledge, rules, and personal memory
+# Vault contract: knowledge, rules, and personal memory
+
+> Supporting specification snapshot. The single active Claude contract and plan is
+> [CLAUDE_IMPLEMENTATION.md](../CLAUDE_IMPLEMENTATION.md), which embeds this contract and the
+> approved review corrections. Its execution order, status and decisions take precedence.
+> Retained here for existing references and tooling; do not use this as a separate handoff.
 
 Status: normative target contract for Loop vNext, with observed-vault facts explicitly labelled.
 Read together with [the main specification](../SPECIFICATION.md). Paths below are
 relative to the configured vault root unless stated otherwise.
 
-## 1. Observed vault, 2026-09-05
+## 1. The reference vault layout
 
-The inspected vault is `/Users/gleb/Claude_Cowork/GlebOS`. Its root `CLAUDE.md`
-identifies it as v2: a source → wiki → output pipeline replacing the earlier
-PARA-folder-plus-nine-agents design. Do not create parallel `Projects`, `Areas`,
-`Resources`, `Archive`, `System`, or `Inbox` directories inside this vault.
+Loop ships an **opinionated default layout** and supports overriding it. The
+default is a source → wiki → output pipeline: numbered stages that make the
+order visible in the file tree, replacing an earlier PARA-folder design. Loop
+does not create parallel `Projects`, `Areas`, `Resources`, `Archive`, `System`
+or `Inbox` directories inside a vault using this layout.
+
+The stages carry the rules; the folder names do not. A vault whose sources
+already live in `sources/` rather than `0-raw/` overrides that one key in its
+manifest and keeps the rest. `loop/vault/layout.py` holds the shipped default
+and the override loader; see §1.1.
+
+Paths below use the default names throughout. Read them as layout *roles* —
+`raw`, `wiki`, `outputs` — which resolve through the configured layout.
 
 | Location | Authority and purpose |
 |---|---|
@@ -52,6 +66,33 @@ frontmatter fields, not factual correctness, link integrity, or all nine rules.
 These counts are a dated inspection, never hardcoded application state. The wiki
 index and last-compile document still describe an older 161-page/268-row snapshot.
 No vault files or scheduled routines were changed during this inspection.
+
+### 1.1 Adjusting the layout for a different vault
+
+A vault declares overrides in its own manifest:
+
+```yaml
+schema_version: 1
+layout_version: loop-vault-v2
+layout:
+  raw: sources
+  inbox: sources/inbox
+  ledger: sources/_ledger.md
+```
+
+Only the keys that differ need declaring; the rest come from the shipped
+default. Three rules are enforced when the override loads:
+
+- Every path stays inside the vault root. An absolute or `..` path is refused.
+- `raw`, `wiki`, `outputs` and `archive` must remain distinct. Merging them
+  removes the boundary that makes "deliverables derive from compiled pages,
+  never directly from raw" checkable.
+- An unrecognised key is an error rather than an ignored line, because a
+  silently dropped override leaves the owner believing a rename took effect.
+
+The layout identifier for the shipped default is `loop-vault-v2`. Vaults
+written by an earlier version may carry `glebos-v2`; Loop accepts that as the
+same layout rather than reporting a working vault as unrecognised.
 
 ## 2. Governing rules, reproduced for reconstruction
 
@@ -144,7 +185,7 @@ _mem/loop/
   YYYY-MM-DD.md          # optional operational daily summary
 ```
 
-Example manifest (paths are vault-relative; an installer never assumes Gleb's username):
+Example manifest (paths are vault-relative; an installer never assumes the owner's username):
 
 ```yaml
 schema_version: 1
@@ -317,8 +358,8 @@ user instruction. Reusable knowledge gets a separate raw source before compilati
 
 ## 8. Scriptorium adapter and enforcement gaps
 
-The project manifest references `~/Claude_Cowork/scriptorium`, which is stale.
-Code was located at `/Users/gleb/Claude_Cowork/third-axis/scriptorium/scriptorium.py`.
+The project manifest references a sibling tool directory, which is stale.
+Code was located at a sibling tool source file.
 Make this an installation setting, never a hardcoded requirement.
 
 Observed tools: `vault_status`, `vault_search`, `vault_read`, `vault_pending`,

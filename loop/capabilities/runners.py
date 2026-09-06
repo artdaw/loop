@@ -8,6 +8,7 @@ pack never adds a coordinator branch.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -26,11 +27,19 @@ from referencing.jsonschema import DRAFT202012
 from sqlalchemy.orm import Session, sessionmaker
 
 from loop.ai.model_gateway import ModelGateway, gateway_chat_model
+from loop.ai.structured import (
+    invoke_structured,
+    parse_object,
+    validate_object,
+)
 from loop.capabilities.registry import CapabilityRegistry, Manifest, OperationDef
 from loop.core.clock import Clock, SystemClock, to_micros
 from loop.core.errors import ApprovalRequired, InvalidInput, Unavailable, ValidationFailed
 from loop.core.ids import content_hash, new_id
 from loop.runtime.authority import AuthorityContext, ToolWrapper
+from loop.runtime.runs import RunStatus
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -54,6 +63,13 @@ class RegisteredHandler:
         "type": "object", "additionalProperties": True,
     })
     required_scope: str | None = None
+    #: Adapter-mode capabilities are the ones with outward effects, so they must
+    #: be able to say they need approval. Without this, an approval gate can
+    #: only cover packs from the registry and every trusted port bypasses it.
+    needs_approval: bool = False
+    #: Which role owns this port. Without it every adapter operation defaults to
+    #: one role, and the role scope check stops discriminating.
+    owner_role: str = "daily_life"
 
 
 class ArtifactStore:
@@ -106,11 +122,16 @@ class CapabilityInvoker:
     def __init__(self, *, registry: CapabilityRegistry,
                  gateway: ModelGateway | None = None,
                  artifact_store: ArtifactStore | None = None,
-                 handlers: Mapping[str, RegisteredHandler | Callable[..., Any]] | None = None
-                 ) -> None:
+                 handlers: Mapping[str, RegisteredHandler | Callable[..., Any]] | None = None,
+                 runs: Any | None = None) -> None:
         self.registry = registry
         self.gateway = gateway
         self.artifact_store = artifact_store
+        # Optional: a `RunStore`. When given, an agent-mode invocation records
+        # a durable child run mapping (agent-stack §2) — a dynamic graph
+        # invoked through a tool has no edge a parent's static graph
+        # inspection can follow, so this is what makes it findable at all.
+        self.runs = runs
         self.handlers: dict[str, RegisteredHandler] = {}
         for name, binding in (handlers or {}).items():
             self.handlers[name] = (binding if isinstance(binding, RegisteredHandler)
@@ -118,7 +139,8 @@ class CapabilityInvoker:
 
     def invoke(self, operation_name: str, arguments: dict[str, Any], *,
                context: AuthorityContext, plan_id: str | None = None,
-               persist: bool = True) -> InvocationResult:
+               persist: bool = True,
+               parent_run_id: str | None = None) -> InvocationResult:
         resolved = self.registry.resolve_operation(operation_name)
         if resolved is None:
             output = self._invoke_handler(operation_name, arguments, context)
@@ -135,8 +157,9 @@ class CapabilityInvoker:
                          merged_arguments, f"{operation_name} input")
 
         if operation.mode == "agent":
-            output, evidence, children = self._run_agent(
-                manifest, operation, merged_arguments, context)
+            output, evidence, children = self._run_agent_tracked(
+                manifest, operation, merged_arguments, context,
+                parent_run_id=parent_run_id)
         elif operation.mode == "workflow":
             output, evidence, children = self._run_workflow(
                 manifest, operation, merged_arguments, context)
@@ -173,6 +196,36 @@ class CapabilityInvoker:
                 f"Registered operation {name!r} returned a non-object result.")
         return result
 
+    def _run_agent_tracked(self, manifest: Manifest, operation: OperationDef,
+                           arguments: dict[str, Any], context: AuthorityContext,
+                           *, parent_run_id: str | None
+                           ) -> tuple[dict[str, Any], list[Any],
+                                     dict[str, dict[str, Any]]]:
+        """Wrap `_run_agent` with a durable child run mapping, when tracked.
+
+        Recorded only when both a `RunStore` and a `parent_run_id` are
+        present — a bare `CapabilityInvoker` used outside a coordinator run
+        (as most unit tests do) still works with no tracking at all.
+        """
+        if self.runs is None or parent_run_id is None:
+            return self._run_agent(manifest, operation, arguments, context)
+
+        snapshot = self.registry.snapshot()
+        child = self.runs.create(
+            root_event_id=context.root_id,
+            graph_version=str(snapshot.get("hash", "")),
+            state_schema_version="1",
+            registry_revision=int(snapshot.get("revision", 0)),
+            registry_hash=str(snapshot.get("hash", "")),
+            privacy=context.privacy, parent_run_id=parent_run_id)
+        try:
+            result = self._run_agent(manifest, operation, arguments, context)
+        except Exception:
+            self.runs.set_status(child.id, RunStatus.FAILED)
+            raise
+        self.runs.set_status(child.id, RunStatus.SUCCEEDED)
+        return result
+
     def _run_agent(self, manifest: Manifest, operation: OperationDef,
                    arguments: dict[str, Any], context: AuthorityContext
                    ) -> tuple[dict[str, Any], list[Any], dict[str, dict[str, Any]]]:
@@ -191,10 +244,44 @@ class CapabilityInvoker:
             "role": "user",
             "content": json.dumps(arguments, ensure_ascii=False, sort_keys=True),
         }]})
-        output = _last_json_message(state.get("messages", []))
+
+        # The agent loop produces messages; the *contract* is the output schema.
+        # Validate against it here and repair against the same budget, rather
+        # than parsing whatever the last message happened to contain and letting
+        # the caller's validation fail with no chance to correct it.
+        output_schema = _load_schema(_schema_path(manifest, operation.output_schema))
+        output = self._structured_output(
+            model, state.get("messages", []), schema=output_schema,
+            context=context, operation_name=operation.name)
+
         evidence = [item for result in child_results.values()
                     for item in _evidence_from(result)]
         return output, evidence, child_results
+
+    def _structured_output(self, model: Any, messages: list[Any], *,
+                           schema: dict[str, Any], context: AuthorityContext,
+                           operation_name: str) -> dict[str, Any]:
+        """Validate the agent's answer, repairing within the original budget."""
+        value, problem = parse_object(_message_text(messages))
+        if value is not None:
+            problems = validate_object(value, schema)
+            if not problems:
+                return value
+        else:
+            problems = [problem]
+
+        logger.info("Agent %s produced invalid output; repairing: %s",
+                    operation_name, problems)
+        result = invoke_structured(
+            model,
+            [*messages,
+             {"role": "user",
+              "content": ("Your previous answer was rejected by the operation's "
+                          "output schema:\n"
+                          + "\n".join(f"- {p}" for p in problems)
+                          + "\nReturn only a corrected JSON object.")}],
+            schema=schema, budget=context.budget, label="operation result")
+        return result.value
 
     def _langchain_tool(self, operation_name: str, context: AuthorityContext,
                         child_results: dict[str, dict[str, Any]]) -> StructuredTool:
@@ -336,6 +423,30 @@ def _model_from_schema(name: str, schema: dict[str, Any]) -> type[Any]:
 def _safe_name(operation_name: str) -> str:
     stem = re.sub(r"[^a-zA-Z0-9_-]", "_", operation_name)[:48]
     return f"{stem}_{content_hash(operation_name)[:10]}"
+
+
+def _load_schema(path: Path) -> dict[str, Any]:
+    """Read a pack's declared output schema."""
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValidationFailed(
+            f"Could not read output schema {path.name}: {exc}") from exc
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _message_text(messages: list[Any]) -> str:
+    """The text of the last AI message, whatever block shape it uses."""
+    for message in reversed(messages):
+        if not isinstance(message, AIMessage):
+            continue
+        content = message.content
+        if isinstance(content, list):
+            return "".join(
+                block.get("text", "") if isinstance(block, dict) else str(block)
+                for block in content)
+        return str(content)
+    return ""
 
 
 def _last_json_message(messages: list[Any]) -> dict[str, Any]:

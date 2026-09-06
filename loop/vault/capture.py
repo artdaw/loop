@@ -46,7 +46,7 @@ class CaptureRequest:
     body: str
     title: str | None = None
     source_kind: str = "note"
-    origin: str = "gleb"
+    origin: str = "owner"
     capture_id: str = field(default_factory=new_id)
     privacy: PrivacyLabel = field(default_factory=PrivacyLabel.for_unlabelled_import)
 

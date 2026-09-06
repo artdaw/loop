@@ -1,5 +1,10 @@
 # Agent stack and capability execution
 
+> Supporting specification snapshot. The single active Claude contract and plan is
+> [CLAUDE_IMPLEMENTATION.md](../CLAUDE_IMPLEMENTATION.md), which embeds this contract and the
+> approved review corrections. Its execution order, status and decisions take precedence.
+> Retained here for existing references and tooling; do not use this as a separate handoff.
+
 Normative for specification 1.3. Read with [runtime](runtime.md),
 [capabilities](capabilities/README.md) and [acceptance](acceptance.md).
 This contract standardizes implementation while preserving all domain invariants.

@@ -1,11 +1,16 @@
 # Loop vNext — a persistent personal support team
 
+> Supporting specification snapshot. The single active Claude contract and plan is
+> [CLAUDE_IMPLEMENTATION.md](CLAUDE_IMPLEMENTATION.md), which embeds this contract and the
+> approved review corrections. Its execution order, status and decisions take precedence.
+> Retained here for existing references and tooling; do not use this as a separate handoff.
+
 **Version:** 1.3 · **Specification date:** 2026-09-06 · **Status:** target design,
 not an implementation-complete claim.
 
 Loop turns conversations and changing circumstances into durable commitments,
 useful knowledge, and timely help. A small team of specialist agents shares
-GlebOS as its knowledge and policy system. A reliable runtime owns task state,
+a knowledge vault as its knowledge and policy system. A reliable runtime owns task state,
 wake-ups, permissions, and delivery.
 
 The service stays available continuously. Agents work when there is a reason:
@@ -23,7 +28,7 @@ old conversation or the current source code.
 | Read order | Document | Defines |
 |---|---|---|
 | 1 | This document | Product, architectural decisions, workflows, build sequence |
-| 2 | [GlebOS contract](specification/vault.md) | Actual vault layout, compile rules, provenance, memory |
+| 2 | [Vault contract](specification/vault.md) | Actual vault layout, compile rules, provenance, memory |
 | 3 | [Runtime contract](specification/runtime.md) | Team coordination, schemas, jobs, time, permissions, recovery |
 | 4 | [Interfaces and operation](specification/interfaces.md) | CLI/bot/API, connectors, configuration, deployment, migration |
 | 5 | [Capability extension contract](specification/capabilities/README.md) | Shared manifest, discovery, invocation, lifecycle and starter template |
@@ -51,8 +56,8 @@ legacy behavior; this package governs vNext.
 
 1. Produce an implementation checklist mapping every acceptance scenario to
    modules, migrations, interfaces, and tests. Preserve these contracts.
-2. Build a minimal synthetic GlebOS fixture from the schemas here. Do not require
-   access to Gleb's personal notes or credentials for development.
+2. Build a minimal synthetic the vault fixture from the schemas here. Do not require
+   access to the owner's personal notes or credentials for development.
 3. Implement deterministic persistence, execution gates, clocks, and fake adapters
    first. Add model-based planning behind typed interfaces afterward.
 4. Follow the delivery sequence in §10. Each stage must demonstrate real results,
@@ -168,7 +173,7 @@ unverified assumptions. Destination discovery and flexible dates are supported.
 
 “Less moving around” revises the same trip. “Keep this plan updated” activates
 bounded checks for disruptions, closures, costs and relevant weather. A selected
-plan remains intact while alternatives are proposed. Saving it to GlebOS creates
+plan remains intact while alternatives are proposed. Saving it to the vault creates
 an operational project plan; reusable discoveries follow the knowledge pipeline.
 Planning does not imply booking or paying. The complete contract is
 [travel.itinerary](specification/capabilities/travel.md).
@@ -187,7 +192,7 @@ It does not yet provide the durable coordinated system described here.
 | Telegram | /task, /tasks, /done, questions and voice handlers exist | Same application services as CLI/API; persistent callbacks/reminders |
 | Tasks | Persistent records and specialist logic | Open-ended commitments with independent durable triggers and waiting states |
 | Scheduling | APScheduler jobs and synchronous wrappers exist | DB authority, leases, persisted occurrences, restart/catch-up semantics |
-| Vault | Generic indexing/formatting assumptions | Exact GlebOS v2 gateway, ledger, Compiler workflow, conflict protection |
+| Vault | Generic indexing/formatting assumptions | Exact the default vault layout gateway, ledger, Compiler workflow, conflict protection |
 | LLM privacy | Router and local-only metadata exist | Labels propagate through all derived state and cannot be downgraded by false |
 | Actions | Autonomy levels and audit exist | Authority for exact payload, executor outcomes, recoverable external effects |
 | Providers | Gmail/Outlook/calendar transport and parser code present | Verify real configured readiness; independent cursors and error isolation |
@@ -203,15 +208,15 @@ The architectural shift is from a collection of specialist commands to a
 research and synthesize. Code guarantees persistence, timing, scope and delivery
 state. Flexible intelligence and reliable execution require different mechanisms.
 
-## 4. GlebOS is the operating context
+## 4. The vault is the operating context
 
-The inspected GlebOS root explicitly defines a v2 source → wiki → output system.
+The inspected the vault root explicitly defines a v2 source → wiki → output system.
 PARA influences actionability and project context; Zettelkasten influences atomic
 concepts and meaningful links. Creating four new PARA folders would violate the
 vault's present structure.
 
 ```text
-GlebOS/
+vault/
   CLAUDE.md
   0-raw/                  immutable sources + _ledger.md
   1-wiki/                 concepts, entities, topics, index, open questions
@@ -261,7 +266,7 @@ flowchart TD
     Intake --> State["SQLite events, commitments, observations and jobs"]
     State --> Coordinator["Coordinator and work assignments"]
     Coordinator --> Team["Commitments · Scribe · Compiler · Seeker · Daily-life · Reviewer"]
-    Policy["GlebOS rules and scoped personal context"] --> Coordinator
+    Policy["the vault rules and scoped personal context"] --> Coordinator
     Team --> Proposals["Typed results and operation proposals"]
     Proposals --> Gates["Privacy · Authority · Evidence · Versions · Budgets"]
     Gates --> Executor["Deterministic executor"]
@@ -411,7 +416,7 @@ in tasks, context, composition, and rules that the user can inspect.
 
 ## 8. Privacy, control, and product boundaries
 
-The default GlebOS and owner conversation context is local-only. Local models
+The default the vault and owner conversation context is local-only. Local models
 serve planning, retrieval, summaries, compilation and voice. Cloud inference is
 optional, explicitly enabled, budgeted, and limited to approved input scope.
 If a local model fails, private work waits; deterministic reminders still operate.
@@ -423,7 +428,7 @@ someone else, publishing, booking, spending, or changing remote commitments need
 its own explicit scope; a general desire for a proactive team is not blanket
 authorization for all external actions.
 
-Initial release includes Telegram, CLI, local web UI, local voice, GlebOS,
+Initial release includes Telegram, CLI, local web UI, local voice, the vault,
 calendar/mail reading and drafts, optional scoped Wrike sync, weather, and
 source-grounded research and travel itinerary planning. Teams is an optional adapter. No purchase/booking,
 medical decision, financial trading, or device-control capability is implicit
@@ -462,7 +467,7 @@ event intake, task lifecycle, triggers, leases, outbox, identity, and loop run.
 Use fake adapters first, then Telegram. Deliver task → restart → reminder →
 done/snooze end to end before multi-agent planning.
 
-### Stage B — GlebOS fidelity
+### Stage B — Vault fidelity
 
 Implement read-only onboarding map/policy conflicts, builtin VaultGateway,
 capture journal/ledger, lexical search, read receipts, Compiler validations,
@@ -505,7 +510,7 @@ the whole personal team works based only on stubs or passing mocked happy paths.
 
 ## 11. Design provenance
 
-This specification was grounded in the actual GlebOS root instructions, profile
+This specification was grounded in the actual the vault root instructions, profile
 structure, governing rules, role documents, prompts, command procedures, ledger,
 wiki samples, project manifests, and the located Scriptorium code. Personal profile
 contents are intentionally not copied into the repository.

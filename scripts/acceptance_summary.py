@@ -23,7 +23,10 @@ from collections import defaultdict
 MATRIX = pathlib.Path(__file__).resolve().parent.parent / "docs" / "ACCEPTANCE_MATRIX.md"
 STATUSES = ("pending", "implemented", "verified", "blocked", "optional-unconfigured")
 ROW = re.compile(r"^\| ([A-Z]{1,3}\d{2,3}) \|.*\| (" + "|".join(STATUSES) + r") \|$")
-SUMMARY = re.compile(r"^\| ([A-Z—]) \| (.+?) \| (\d+) \| \d+ \| \d+ \| \d+ \|$")
+# The stage cell can name more than one stage ("C/E"), so this is a character
+# class with a quantifier. A single-character pattern silently skipped that row
+# and left its counts frozen at whatever was last written by hand.
+SUMMARY = re.compile(r"^\| ([A-Z/—]+) \| (.+?) \| (\d+) \| \d+ \| \d+ \| \d+ \|$")
 
 
 def main() -> int:

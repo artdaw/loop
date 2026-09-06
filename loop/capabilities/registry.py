@@ -38,6 +38,7 @@ from typing import Any
 
 import yaml
 
+from loop.agents.roles import ROLES as _ROLE_IDS_FROZEN
 from loop.core.errors import Conflict, InvalidInput, ValidationFailed
 from loop.core.ids import content_hash
 
@@ -59,8 +60,9 @@ VALID_EFFECTS = frozenset({
 
 VALID_MODES = frozenset({"agent", "workflow", "adapter"})
 VALID_BUDGET_CLASSES = frozenset({"interactive", "background", "research"})
-ROLES = frozenset({"coordinator", "commitments", "scribe", "compiler", "seeker",
-                   "daily_life", "reviewer"})
+#: One definition, in `loop.agents.roles`. Restating it here is how the two
+#: validators end up disagreeing about what a valid role is.
+ROLES = _ROLE_IDS_FROZEN
 
 #: Refuse absurdly large manifests before parsing them.
 MAX_MANIFEST_BYTES = 256 * 1024

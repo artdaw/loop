@@ -24,7 +24,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -334,3 +334,54 @@ def occurrence_key_for_schedule(local_date: dt.date, wall_time: dt.time,
 def occurrence_key_for_one_shot(trigger_id: str) -> str:
     """One-shot triggers have exactly one occurrence: the trigger itself."""
     return trigger_id
+
+
+# --------------------------------------------------------------------------- #
+# Timezone changes (D12)
+# --------------------------------------------------------------------------- #
+@dataclass
+class RetimeReport:
+    """What a timezone change did, and deliberately did not do."""
+
+    retimed: list[str] = field(default_factory=list)
+    unchanged_explicit: list[str] = field(default_factory=list)
+    past_occurrences_untouched: int = 0
+
+    @property
+    def total(self) -> int:
+        return len(self.retimed) + len(self.unchanged_explicit)
+
+
+def retime_floating(triggers: list[Trigger], *, new_timezone: str,
+                    now: int = 0) -> RetimeReport:
+    """Move *floating* schedules to a new zone, leaving pinned ones alone (D12).
+
+    A floating routine means "07:00 wherever I am" — moving to Lisbon should
+    keep it at 07:00 local. A schedule whose definition sets
+    ``timezone_is_explicit`` means "07:00 Berlin time", usually because
+    something in Berlin happens then; rewriting it to Lisbon would silently move
+    a real appointment.
+
+    Only future occurrences are recomputed. A past occurrence already fired or
+    was already missed, and rewriting history would make the ledger disagree
+    with what the user actually experienced — so ``last_fire_at`` is never
+    touched and a trigger whose next fire is already behind us is left for the
+    catch-up path to decide.
+    """
+    report = RetimeReport()
+
+    for trigger in triggers:
+        definition = trigger.definition
+        if trigger.kind != "local_schedule":
+            report.unchanged_explicit.append(trigger.id)
+            continue
+        if definition.get("timezone_is_explicit"):
+            report.unchanged_explicit.append(trigger.id)
+            continue
+
+        definition["timezone"] = new_timezone
+        report.retimed.append(trigger.id)
+        if trigger.last_fire_at is not None:
+            report.past_occurrences_untouched += 1
+
+    return report

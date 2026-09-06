@@ -1,5 +1,10 @@
 # Acceptance contract and reconstruction checklist
 
+> Supporting specification snapshot. The single active Claude contract and plan is
+> [CLAUDE_IMPLEMENTATION.md](../CLAUDE_IMPLEMENTATION.md), which embeds this contract and the
+> approved review corrections. Its execution order, status and decisions take precedence.
+> Retained here for existing references and tooling; do not use this as a separate handoff.
+
 Status: normative target. These scenarios define observable completion, not just
 suggested tests. Read [main](../SPECIFICATION.md), [vault](vault.md),
 [runtime](runtime.md), [interfaces](interfaces.md), [travel](capabilities/travel.md),
@@ -19,7 +24,7 @@ proves runtime behavior, not reasoning ability. Network smoke tests are opt-in
 and require a disposable account/destination. Never send to a real person as an
 automatic verification step.
 
-Create a temporary synthetic GlebOS with:
+Create a temporary synthetic the vault with:
 - CLAUDE.md declaring v2 and pointing to the rule files and _mem/profile.md.
 - Three _ctx/rules files containing the nine rules, naming and frontmatter
   constraints reproduced in the vault contract; four role documents.

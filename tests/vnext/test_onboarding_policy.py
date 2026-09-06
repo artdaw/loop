@@ -11,6 +11,7 @@ import pytest
 
 from loop.vault.capture import CaptureRequest, CaptureService
 from loop.vault.gateway import VaultGateway
+from loop.vault.layout import LAYOUT_VERSION
 from loop.vault.onboarding import FORBIDDEN_ROOTS, VaultOnboarding
 from loop.vault.policy import PolicyLoader, RoutineRegistry
 from tests.vnext.vault_fixtures import build_minimal_vault
@@ -20,7 +21,7 @@ TODAY = date(2026, 9, 6)
 
 @pytest.fixture
 def vault(tmp_path):
-    return build_minimal_vault(tmp_path / "GlebOS")
+    return build_minimal_vault(tmp_path / "vault")
 
 
 @pytest.fixture
@@ -48,7 +49,7 @@ def _snapshot(root) -> dict[str, float]:
 # V01 — dry-run onboarding
 # --------------------------------------------------------------------------- #
 def test_v01_the_layout_is_detected_as_v2(onboarding):
-    assert onboarding.inspect().layout_version == "glebos-v2"
+    assert onboarding.inspect().layout_version == LAYOUT_VERSION
 
 
 def test_v01_the_map_covers_the_expected_paths(onboarding):
@@ -126,7 +127,7 @@ def test_the_manifest_maps_paths_without_assuming_a_username(onboarding, gateway
     onboarding.apply(dry_run=False)
     manifest = yaml.safe_load(gateway.read_text("_ctx/loop/manifest.yaml"))
 
-    assert manifest["layout"] == "glebos-v2"
+    assert manifest["layout"] == LAYOUT_VERSION
     assert manifest["paths"]["ledger"] == "0-raw/_ledger.md"
     assert not any(str(v).startswith("/") for v in manifest["paths"].values())
 
@@ -354,3 +355,73 @@ def test_v28_onboarding_does_not_activate_anything(onboarding, vault):
 
     assert _snapshot(vault.root) == before
     assert not (vault.root / ".git").exists()
+
+
+# --------------------------------------------------------------------------- #
+# The layout is opinionated by default and adjustable per vault
+# --------------------------------------------------------------------------- #
+def test_the_shipped_layout_is_the_default():
+    from loop.vault.layout import DEFAULT_LAYOUT, VaultLayout
+
+    layout = VaultLayout()
+    assert layout.is_default
+    assert layout.path("raw") == DEFAULT_LAYOUT["raw"]
+
+
+def test_a_vault_may_rename_a_stage():
+    """Someone whose notes live in `sources/` should not have to rename them."""
+    from loop.vault.layout import load_layout
+
+    layout = load_layout({"layout": {"raw": "sources", "inbox": "sources/inbox"}})
+
+    assert layout.path("raw") == "sources"
+    assert layout.path("inbox") == "sources/inbox"
+
+
+def test_an_override_keeps_the_rest_of_the_default():
+    from loop.vault.layout import load_layout
+
+    layout = load_layout({"layout": {"raw": "sources"}})
+    assert layout.path("wiki") == "1-wiki"
+
+
+def test_two_stages_may_not_share_a_path():
+    """Merging raw and wiki makes the immutability rule unenforceable."""
+    from loop.core.errors import InvalidInput
+    from loop.vault.layout import load_layout
+
+    with pytest.raises(InvalidInput, match="distinct"):
+        load_layout({"layout": {"raw": "notes", "wiki": "notes"}})
+
+
+def test_a_layout_path_may_not_escape_the_vault():
+    from loop.core.errors import InvalidInput
+    from loop.vault.layout import load_layout
+
+    with pytest.raises(InvalidInput, match="inside the vault root"):
+        load_layout({"layout": {"raw": "../elsewhere"}})
+
+
+def test_an_unknown_layout_key_is_reported_not_ignored():
+    """A silently ignored override leaves the owner's change with no effect."""
+    from loop.core.errors import InvalidInput
+    from loop.vault.layout import load_layout
+
+    with pytest.raises(InvalidInput, match="does not use"):
+        load_layout({"layout": {"raw_notes": "sources"}})
+
+
+def test_an_earlier_layout_identifier_is_still_recognised():
+    """A vault written by an older version is not suddenly unrecognised."""
+    from loop.vault.layout import LAYOUT_VERSION, normalise_layout_version
+
+    assert normalise_layout_version("glebos-v2") == LAYOUT_VERSION
+    assert normalise_layout_version("something-else") == "something-else"
+
+
+def test_no_personal_identity_is_baked_into_the_default_layout():
+    """The project ships a structure, not one person's vault."""
+    from loop.vault.layout import DEFAULT_LAYOUT
+
+    joined = " ".join(DEFAULT_LAYOUT.values()).lower()
+    assert "gleb" not in joined
