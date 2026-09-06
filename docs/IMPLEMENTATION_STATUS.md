@@ -3,7 +3,7 @@
 **Read this file, `IMPLEMENTATION_PLAN.md`, and `ACCEPTANCE_MATRIX.md` to resume without the
 original conversation.** Verify each claim against the worktree before trusting it.
 
-**Branch:** `vnext-implementation` · **Last updated:** 2026-09-06 · **Stage:** A **complete** (A1–A9); work package 2 (ModelGateway) next
+**Branch:** `vnext-implementation` · **Last updated:** 2026-09-06 · **Stage:** A complete; **WP2 (ModelGateway) complete**; WP3 (Stage B vault) next
 
 ---
 
@@ -45,7 +45,8 @@ Do not read the Phase 4 README/spec completion claims as evidence for this targe
 | A8 loop run, single leader | **done** | `test_stage_a_e2e.py` — D15, D16, D17 |
 | A9 Stage A end-to-end | **done** | `test_stage_a_e2e.py` 23 passed — T01, T09, T10, D01 |
 | **Stage A** | **complete** | 535 tests pass; ruff + mypy clean |
-| WP2 ModelGateway (LangChain) | **next** | — |
+| WP2 ModelGateway (LangChain) | **done** | `tests/vnext/test_model_gateway.py` 29 passed — LG03, LG05, LG12 |
+| WP3 Stage B: vault gateway → compiler | **next** | — |
 | A3–A9 | pending | — |
 | Stages B–E | pending | — |
 
@@ -59,10 +60,11 @@ mypy .              Success: no issues found in 61 source files
 uv.lock             ABSENT
 python              3.12.11
 
-# current, after Stage A (2026-09-06)
-pytest              535 passed (288 legacy + 247 vnext), 1 warning
+# current, after WP2 (2026-09-06)
+pytest              564 passed (288 legacy + 276 vnext), 1 warning
 ruff check .        All checks passed!
-mypy .              Success: no issues found in 94 source files
+mypy .              Success: no issues found in 98 source files
+uv sync --locked    reproducible; 176 packages resolved
 uv.lock             present, validated with --locked
 ```
 
@@ -192,24 +194,55 @@ advances past the dead leader's lease and asserts it actually swept.
 mechanism and confirming the test fails. Mutations applied so far: job compare-and-set, outbox
 no-resend, outbox preflight, leader check, occurrence suppression.
 
+## WP2 delivered — ModelGateway
+
+| File | Contract | Scenarios verified |
+|---|---|---|
+| `loop/ai/model_gateway.py` | agent-stack §3 policy adapter | **LG03**, **LG12** |
+| `loop/ai/budget.py` | agent-stack §3 shared accounting | **LG05** |
+
+Dependencies moved to LangChain 1.4 / LangGraph 1.2 with `langchain-ollama` 1.1,
+`langchain-anthropic` 1.7 and `langgraph-checkpoint-sqlite` 3.1. The direct `ollama` and
+`anthropic` SDKs are **retained deliberately** — legacy `core/llm_router.py` still imports them
+lazily, so removing them would break a retained module. There is a comment in `pyproject.toml`
+saying so, because they otherwise look unused.
+
+Tests use LangChain's own `GenericFakeChatModel`, so the path under test is the real
+`BaseChatModel.invoke` path rather than a stand-in that could drift from framework behaviour.
+
+**Removed the legacy escalation heuristic.** The old router escalated to cloud when a local reply
+looked "weak" by length, latency or refusal phrasing. Specification 1.3 forbids this: those are
+not confidence measurements, and acting on them silently sends private-adjacent work to a third
+party. Cloud is now reached only when the local model is genuinely *unavailable* and the label
+permits it.
+
+**Provider API mismatch caught by mypy.** `ChatAnthropic` in the locked 1.7.1 declares `model`
+with alias `model_name` and an `api_key` of type `SecretStr`; two aliased optional fields also read
+as required to the type checker. Verified the real signature against the installed package instead
+of assuming the documented spelling.
+
+**Mutations verified:** allowing the private path to fall back to cloud fails 5 LG03 tests;
+removing the budget lock fails the parallel-children test.
+
 ## Exact next step
 
-**Work package 2 (CLAUDE_EXECUTION.md): `loop/ai/model_gateway.py`** — the shared LangChain
+**Work package 3: complete Stage B** (vault gateway, policy, capture, receipts, compiler,
+retrieval) — 32 V scenarios, `docs/specification/vault.md`.
+
+Order within the package, following the plan's B1–B9:
+1. **B1** synthetic GlebOS fixtures (minimal + a 500-source/200-page perf vault) per acceptance §1,
+   including Unicode NFC/NFD filenames, pipes inside source bodies, and an old v1 template.
+2. **B2–B3** read-only onboarding and policy loading with rule conflicts (V01–V09).
+3. **B4** exact capture and the six-column ledger (V10–V16).
+4. **B5** journaled gateway with crash injection at each boundary (V17–V22) — apply the standing
+   mutation discipline here especially.
+5. **B6–B8** read receipts, compiler rules 1–9, FTS5 retrieval (V23–V32).
+
+GlebOS at `/Users/gleb/Claude_Cowork/GlebOS` stays **read-only**; all tests use temporary
+synthetic vaults. — the shared LangChain
 policy adapter, required *before* any model-driven Stage B work.
 
-1. Inspect `pyproject.toml`/`uv.lock` first: legacy LangChain/LangGraph ranges and direct provider
-   SDKs are still declared, and a retained legacy module may import them. Do not remove a
-   dependency a legacy module still uses; upgrade through compatible provider packages.
-2. `ModelGateway` wraps `ChatOllama`/`ChatAnthropic` behind one policy adapter. Privacy and budget
-   middleware land **before** any model-driven workflow.
-3. **LG03**: a local-only input — including derived summaries and child output — must produce zero
-   cloud calls and no content in tracing or audit logs.
-4. **LG05**: concurrent children share one root budget.
-5. Response length and latency must not be treated as confidence for automatic cloud fallback
-   (CLAUDE.md, required architecture).
 
-Relevant sections: `docs/specification/agent-stack.md`; runtime §3 (privacy), §2 (budgets);
-CLAUDE.md "Required architecture".
 
  (runtime §4, interfaces §9, acceptance §1):
 

@@ -20,7 +20,7 @@ A green test count is not coverage: a row is `verified` only when its named test
 | C | 9. Capability extensibility | 14 | 0 | 0 | 14 |
 | E | 10. Build, migration, operations and release | 14 | 0 | 0 | 14 |
 | C/E | 11. Standard agent stack | 12 | 0 | 0 | 12 |
-| — | **Total** | **196** | **25** | **0** | **171** |
+| — | **Total** | **196** | **28** | **0** | **168** |
 
 
 ## 2. Commitments and everyday interaction
@@ -278,13 +278,13 @@ Specification 1.3 additions; no implementation or verification is claimed.
 |---|---|---|---|---|---|---|
 | LG01 | Agent pack executes | Real create_agent and LangChain model adapter path produces validated output | C1–C8 / E7 | — | — | pending |
 | LG02 | Add two unrelated agent/workflow packs | Both run without coordinator, channel or core schema edits | C1–C8 / E7 | — | — | pending |
-| LG03 | Private context and local model failure | No cloud call, including child, summary and repair paths | C1–C8 / E7 | — | — | pending |
+| LG03 | Private context and local model failure | No cloud call, including child, summary and repair paths | WP2 | `loop/ai/model_gateway.py` | `test_model_gateway.py::test_lg03_*` | verified |
 | LG04 | Model requests undeclared tool or forged authority | Wrapper refuses; no effect and no authority escalation | C1–C8 / E7 | — | — | pending |
-| LG05 | Parallel children and schema repairs reach budget limit | One shared budget enforces the cap without multiplied retries | C1–C8 / E7 | — | — | pending |
+| LG05 | Parallel children and schema repairs reach budget limit | One shared budget enforces the cap without multiplied retries | WP2 | `loop/ai/budget.py` | `test_model_gateway.py::test_lg05_*` | verified |
 | LG06 | Restart during graph execution | Persistent checkpoint resumes pinned work with isolated child state | C1–C8 / E7 | — | — | pending |
 | LG07 | Crash before or after domain effect commit | Replay consults stable operation key; no duplicate effect or false success | C1–C8 / E7 | — | — | pending |
 | LG08 | Approval interrupt, restart and authenticated resume | Same bound approval; expired, altered or unauthorized decisions cannot execute | C1–C8 / E7 | — | — | pending |
 | LG09 | Disable pack or cancel paused run before resume | Current cancellation and authority checked before tool/effect | C1–C8 / E7 | — | — | pending |
 | LG10 | Upgrade graph or capability while run is paused | Pinned version resumes or visibly pauses if unavailable; no silent substitution | C1–C8 / E7 | — | — | pending |
 | LG11 | Private checkpoint backup, restore and forgetting | Consistent paired DB backup; source retention applies; no remote content trace | C1–C8 / E7 | — | — | pending |
-| LG12 | No events, or configured model lacks required features | No idle inference; unsupported model features reported without implicit cloud use | C1–C8 / E7 | — | — | pending |
+| LG12 | No events, or configured model lacks required features | No idle inference; unsupported model features reported without implicit cloud use | WP2 | `loop/ai/model_gateway.py` | `test_model_gateway.py::test_lg12_*` | verified |
