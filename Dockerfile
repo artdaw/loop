@@ -1,10 +1,11 @@
 # Loop — the assistant app image.
 FROM python:3.12-slim
+COPY --from=ghcr.io/astral-sh/uv:0.12.9 /uv /uvx /usr/local/bin/
 
 # Avoid interactive prompts and keep Python output unbuffered.
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    UV_NO_CACHE=1
 
 # Minimal build deps (some wheels need a compiler / git at build time).
 RUN apt-get update \
@@ -13,12 +14,9 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Install dependencies first for better layer caching.
-COPY pyproject.toml README.md ./
-RUN pip install --upgrade pip && pip install .
-
-# Copy the application source.
+# Copy the package sources before uv builds and installs the project.
 COPY . .
+RUN uv pip install --system .
 
 # Local runtime data (SQLite + ChromaDB) — mounted as a volume in compose.
 RUN mkdir -p /app/data
@@ -26,4 +24,4 @@ RUN mkdir -p /app/data
 # Default: run the orchestrator daemon. Override for the CLI or web UI.
 #   docker compose run --rm app loop status
 #   uvicorn web.main:app --host 0.0.0.0 --port 8000
-CMD ["python", "-m", "cli.main", "status"]
+CMD ["loop", "telegram"]

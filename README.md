@@ -3,6 +3,25 @@
 > A terminal-first, AI-driven **personal command centre** for daily work and life.
 > Local-first, cloud-optional. One isolated instance per person.
 
+The **[Loop vNext specification](docs/SPECIFICATION.md)** defines the proposed
+persistent agent team, durable tasks and reminders, GlebOS knowledge workflows,
+proactive routines, and learning. Its contracts cover
+[the vault](docs/specification/vault.md), [runtime](docs/specification/runtime.md),
+[interfaces and deployment](docs/specification/interfaces.md), and
+[acceptance scenarios](docs/specification/acceptance.md).
+The [travel itinerary pack](docs/specification/capabilities/travel.md) adds
+personalized trip research, feasible daily plans, comparison, and optional monitoring.
+The [weather pack](docs/specification/capabilities/weather.md) compares sources
+and prefers suitable local meteorological services. Both use the
+[shared extension contract](docs/specification/capabilities/README.md) and
+[starter template](docs/specification/capabilities/template/README.md).
+To implement the full target with Claude Code or another coding agent, use the
+[implementation handoff](docs/IMPLEMENTATION_HANDOFF.md).
+Specification 1.3 standardizes the [agent stack](docs/specification/agent-stack.md)
+on LangChain and LangGraph, with generic capability runners and durable recovery.
+This is the target design; the legacy setup and feature descriptions below do
+not imply that vNext is implemented.
+
 Loop watches the tools you already use — Gmail, Outlook, Google/Outlook Calendar,
 Wrike, Obsidian — and delivers reminders and follow-ups where you already live:
 **Telegram and Microsoft Teams**. It runs a local LLM (Ollama) first and only

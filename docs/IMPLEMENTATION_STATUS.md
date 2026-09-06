@@ -3,7 +3,7 @@
 **Read this file, `IMPLEMENTATION_PLAN.md`, and `ACCEPTANCE_MATRIX.md` to resume without the
 original conversation.** Verify each claim against the worktree before trusting it.
 
-**Branch:** `vnext-implementation` · **Last updated:** 2026-09-06 · **Stage:** A complete; WP2 complete; **Stage B complete (B1–B8)**; WP4 (Stage C foundation) next
+**Branch:** `vnext-implementation` · **Last updated:** 2026-09-06 · **Stage:** A complete; WP2 complete; Stage B complete; **WP4 C1–C4 done**; C5 registry next
 
 ---
 
@@ -54,7 +54,11 @@ Do not read the Phase 4 README/spec completion claims as evidence for this targe
 | WP3·B7 compiler rules 1–9 | **done** | `test_compiler.py` 56 passed — V08–V11, V14–V18, V22, V32 |
 | WP3·B8 lexical retrieval + meetings | **done** | `test_search.py` 20 passed — V25, V31 |
 | **Stage B** | **complete** | all 32 V scenarios verified |
-| WP4 Stage C foundation | **next** | — |
+| WP4·C1 typed plans + DAG | **done** | `test_planner_authority.py` 48 passed — A01–A04 |
+| WP4·C2 authority + privacy propagation | **done** | same file — A06, A08–A13, A23, **LG04** |
+| WP4·C3 shared budget through contexts | **done** | same file — A07 |
+| WP4·C4 operation ledger + approvals | **done** | `test_operations.py` 25 passed — A14–A17, LG07 (replay) |
+| WP4·C5 capability registry | **next** | — |
 | A3–A9 | pending | — |
 | Stages B–E | pending | — |
 
@@ -68,10 +72,10 @@ mypy .              Success: no issues found in 61 source files
 uv.lock             ABSENT
 python              3.12.11
 
-# current, Stage B complete (2026-09-06)
-pytest              767 passed (288 legacy + 479 vnext), 1 warning
+# current, WP4 C1–C4 (2026-09-06)
+pytest              840 passed (288 legacy + 552 vnext), 1 warning
 ruff check .        All checks passed!
-mypy .              Success: no issues found in 114 source files
+mypy .              Success: no issues found in 119 source files
 uv sync --locked    reproducible; 176 packages resolved
 uv.lock             present, validated with --locked
 ```
@@ -309,23 +313,44 @@ human-ownership guard, search privacy filter. Each was disabled and confirmed to
 *Also fixed:* one V15 assertion ended in `or True`, making it vacuous. Replaced with two real
 assertions.
 
+## WP4 C1–C4 delivered
+
+| File | Contract | Scenarios verified |
+|---|---|---|
+| `loop/runtime/planner.py` | runtime §5 typed plans | **A01**, **A02**, **A03**, **A04** |
+| `loop/runtime/authority.py` | runtime §10, agent-stack §2 | **A06**, **A08**–**A13**, **A23**, **LG04** |
+| `loop/runtime/operations.py` | runtime §10 ledger | **A14**–**A17**, LG07 replay |
+
+A plan is a proposal, and unknown fields are a **rejection** rather than something to ignore: a
+model emitting `authority: owner` is usually pattern-matching, but an executor that accepts the
+field has handed plan authorship the power to grant permissions. Runtime context is injected by
+code and reserved argument names are stripped and logged.
+
+Effect slots key on the **root event**, so two unrelated requests worded similarly get different
+slots — merging them would silently drop one of the user's actual requests.
+
+The ledger separates `authorized` from `committed` deliberately. A gate allowing an action is not
+evidence it happened; recording "executed" because the check passed is how an audit log starts
+lying. Approvals bind to operation + payload hash + actor + expiry, all four revalidated in one
+place so a call site cannot forget one.
+
+*Design note recorded:* the dependency-depth limit is unreachable within a single plan, because
+depth can never exceed the step count and the step limit is equal. It binds across **nested**
+plans, and is tested against `validate_dag` directly rather than through a plan that can never
+trigger it.
+
+**Mutations verified:** approval payload binding, reserved-argument stripping. Both fail their
+tests when removed.
+
 ## Exact next step
 
-**Work package 4 (CLAUDE_EXECUTION.md): Stage C foundation** — typed plans, the operation
+**WP4·C5 — the capability registry** (`loop/capabilities/registry.py`), then WP5. — typed plans, the operation
 ledger and approvals, registry snapshots and typed tool wrappers.
 
-1. **C1** `loop/runtime/planner.py`: typed plans, work items, dependency DAG validation
-   (**A01–A06**).
-2. **C2** `loop/runtime/authority.py`: privacy and authority propagation through assignments;
-   forged tool arguments cannot override injected authority (**A07–A12**, **LG04**).
-3. **C3** budgets, cancellation, partial results (**A13–A18**) — reuse `loop/ai/budget.py`.
-4. **C4** `loop/runtime/operations.py`: operations, approvals, stable effect slots
-   (**A19–A23**, groundwork for **LG07**, **LG08**).
-5. **C5** `loop/capabilities/registry.py`: manifest validation and registry snapshots
-   (**EX01–EX07**).
-
-Then WP5 (coordinator + generic runners, **LG01/LG02/LG04**) and WP6 (checkpointer durability,
-**LG05–LG10**, **LG12**).
+Targets **EX01–EX07**: manifest validation, registry snapshots, colliding operation names,
+schema-ref and path-escape rejection, dependency/cycle detection, and the offline conformance
+harness. Then WP5 (coordinator + generic runners, **LG01**, **LG02**) and WP6 (AsyncSqliteSaver
+durability, **LG06**, **LG08**–**LG11**).
 
 Relevant sections: `docs/specification/agent-stack.md` §1–§2; runtime §5 (plan/capability
 contracts), §10 (authorization); `capabilities/README.md`; acceptance §5 and §9.
