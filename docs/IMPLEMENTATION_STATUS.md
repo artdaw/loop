@@ -3,7 +3,7 @@
 **Read this file, `IMPLEMENTATION_PLAN.md`, and `ACCEPTANCE_MATRIX.md` to resume without the
 original conversation.** Verify each claim against the worktree before trusting it.
 
-**Branch:** `vnext-implementation` · **Last updated:** 2026-09-06 · **Stage:** A complete; **WP2 (ModelGateway) complete**; WP3 (Stage B vault) next
+**Branch:** `vnext-implementation` · **Last updated:** 2026-09-06 · **Stage:** A complete; WP2 complete; **WP3 Stage B in progress** (B1/B4/B5 done, B2/B3/B6–B8 next)
 
 ---
 
@@ -46,7 +46,11 @@ Do not read the Phase 4 README/spec completion claims as evidence for this targe
 | A9 Stage A end-to-end | **done** | `test_stage_a_e2e.py` 23 passed — T01, T09, T10, D01 |
 | **Stage A** | **complete** | 535 tests pass; ruff + mypy clean |
 | WP2 ModelGateway (LangChain) | **done** | `tests/vnext/test_model_gateway.py` 29 passed — LG03, LG05, LG12 |
-| WP3 Stage B: vault gateway → compiler | **next** | — |
+| WP3·B1 synthetic vault fixtures | **done** | `tests/vnext/vault_fixtures.py` (minimal + 500-source perf) |
+| WP3·B5 gateway: paths, journal, recovery | **done** | `test_vault_gateway.py` 27 passed — V04, V05, V12, V13, V30 |
+| WP3·B4 capture + ledger | **done** | `test_capture_ledger.py` 31 passed — V02, V03, V19, V20 |
+| WP3·B2/B3 onboarding + policy | **next** | — |
+| WP3·B6–B8 receipts, compiler, retrieval | pending | — |
 | A3–A9 | pending | — |
 | Stages B–E | pending | — |
 
@@ -60,10 +64,10 @@ mypy .              Success: no issues found in 61 source files
 uv.lock             ABSENT
 python              3.12.11
 
-# current, after WP2 (2026-09-06)
-pytest              564 passed (288 legacy + 276 vnext), 1 warning
+# current, mid-WP3 (2026-09-06)
+pytest              622 passed (288 legacy + 334 vnext), 1 warning
 ruff check .        All checks passed!
-mypy .              Success: no issues found in 98 source files
+mypy .              Success: no issues found in 105 source files
 uv sync --locked    reproducible; 176 packages resolved
 uv.lock             present, validated with --locked
 ```
@@ -224,22 +228,52 @@ of assuming the documented spelling.
 **Mutations verified:** allowing the private path to fall back to cloud fails 5 LG03 tests;
 removing the budget lock fails the parallel-children test.
 
+## WP3 progress — B1, B4, B5 delivered
+
+| File | Contract | Scenarios verified |
+|---|---|---|
+| `tests/vnext/vault_fixtures.py` | acceptance §1 fixtures | (harness) |
+| `loop/vault/gateway.py` | vault §5, runtime §9 | **V04**, **V05**, **V12**, **V13**, **V30** |
+| `loop/vault/ledger.py` | vault §5 six-column ledger | **V19**, **V20** |
+| `loop/vault/capture.py` | vault §5 exact capture | **V02**, **V03** |
+
+**Three real bugs found by tests.**
+1. *Append recovery was structurally broken.* `desired_hash` held the hash of the appended
+   fragment, but recovery compares it against the whole file — so every resumed append looked
+   like a third-party conflict. `make_operation` now computes the resulting-file hash.
+2. *A derived title inherited the body's pipe.* Bodies legitimately contain `|` (V02); a
+   machine-derived title must not, or it corrupts the ledger row. Derived titles are sanitised;
+   an explicitly supplied title with a pipe is still rejected as a user error.
+3. *`reserve_path` could not recognise its own retry.* The second attempt saw the base path
+   occupied and allocated a suffix, creating a sibling file for a note written once. It now reuses
+   the base path when the existing bytes match what it is about to write.
+
+**Mutations verified:** removing path confinement fails 2 V30 tests; removing the expected-hash
+check fails the V12 concurrent-edit test and the replace test.
+
+GlebOS at `/Users/gleb/Claude_Cowork/GlebOS` was never read or written; all tests use temporary
+synthetic vaults.
+
 ## Exact next step
 
-**Work package 3: complete Stage B** (vault gateway, policy, capture, receipts, compiler,
+**WP3 continued — B2/B3 (onboarding and policy), then B6–B8.**
+
+1. **B2** `loop/vault/onboarding.py`: read-only layout detection and a dry-run map (**V01** — no
+   file writes, no new PARA roots).
+2. **B3** `loop/vault/policy.py`: rule loading with the precedence order from vault §3, and
+   explicit policy conflicts (**V26**, **V27**, **V28**). The fixture already contains the v1
+   `Zettel.md` template and the *prepared but unregistered* routine these need.
+3. **B6** receipts (**V06**, **V07**, **V21**, **V23**, **V24**, **V29**), **B7** compiler rules
+   1–9 (**V08**–**V11**, **V14**–**V18**, **V22**, **V32**), **B8** FTS5 retrieval (**V25**,
+   **V31**).
+
+Remaining V scenarios: 23 of 32.
+
+Relevant sections: vault §1–§4 (layout, rules, loading order, onboarding additions), §6 (compile
+contract); acceptance §4. (vault gateway, policy, capture, receipts, compiler,
 retrieval) — 32 V scenarios, `docs/specification/vault.md`.
 
-Order within the package, following the plan's B1–B9:
-1. **B1** synthetic GlebOS fixtures (minimal + a 500-source/200-page perf vault) per acceptance §1,
-   including Unicode NFC/NFD filenames, pipes inside source bodies, and an old v1 template.
-2. **B2–B3** read-only onboarding and policy loading with rule conflicts (V01–V09).
-3. **B4** exact capture and the six-column ledger (V10–V16).
-4. **B5** journaled gateway with crash injection at each boundary (V17–V22) — apply the standing
-   mutation discipline here especially.
-5. **B6–B8** read receipts, compiler rules 1–9, FTS5 retrieval (V23–V32).
-
-GlebOS at `/Users/gleb/Claude_Cowork/GlebOS` stays **read-only**; all tests use temporary
-synthetic vaults. — the shared LangChain
+ — the shared LangChain
 policy adapter, required *before* any model-driven Stage B work.
 
 
