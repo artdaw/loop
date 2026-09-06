@@ -3,7 +3,7 @@
 **Read this file, `IMPLEMENTATION_PLAN.md`, and `ACCEPTANCE_MATRIX.md` to resume without the
 original conversation.** Verify each claim against the worktree before trusting it.
 
-**Branch:** `vnext-implementation` · **Last updated:** 2026-09-06 · **Stage:** A complete; WP2 complete; **WP3 Stage B in progress** (B1/B4/B5 done, B2/B3/B6–B8 next)
+**Branch:** `vnext-implementation` · **Last updated:** 2026-09-06 · **Stage:** A complete; WP2 complete; **Stage B complete (B1–B8)**; WP4 (Stage C foundation) next
 
 ---
 
@@ -49,8 +49,12 @@ Do not read the Phase 4 README/spec completion claims as evidence for this targe
 | WP3·B1 synthetic vault fixtures | **done** | `tests/vnext/vault_fixtures.py` (minimal + 500-source perf) |
 | WP3·B5 gateway: paths, journal, recovery | **done** | `test_vault_gateway.py` 27 passed — V04, V05, V12, V13, V30 |
 | WP3·B4 capture + ledger | **done** | `test_capture_ledger.py` 31 passed — V02, V03, V19, V20 |
-| WP3·B2/B3 onboarding + policy | **next** | — |
-| WP3·B6–B8 receipts, compiler, retrieval | pending | — |
+| WP3·B2/B3 onboarding + policy | **done** | `test_onboarding_policy.py` 37 passed — V01, V26, V27, V28 |
+| WP3·B6 read receipts + provenance | **done** | `test_receipts.py` 32 passed — V06, V07, V21, V23, V24, V29 |
+| WP3·B7 compiler rules 1–9 | **done** | `test_compiler.py` 56 passed — V08–V11, V14–V18, V22, V32 |
+| WP3·B8 lexical retrieval + meetings | **done** | `test_search.py` 20 passed — V25, V31 |
+| **Stage B** | **complete** | all 32 V scenarios verified |
+| WP4 Stage C foundation | **next** | — |
 | A3–A9 | pending | — |
 | Stages B–E | pending | — |
 
@@ -64,10 +68,10 @@ mypy .              Success: no issues found in 61 source files
 uv.lock             ABSENT
 python              3.12.11
 
-# current, mid-WP3 (2026-09-06)
-pytest              622 passed (288 legacy + 334 vnext), 1 warning
+# current, Stage B complete (2026-09-06)
+pytest              767 passed (288 legacy + 479 vnext), 1 warning
 ruff check .        All checks passed!
-mypy .              Success: no issues found in 105 source files
+mypy .              Success: no issues found in 114 source files
 uv sync --locked    reproducible; 176 packages resolved
 uv.lock             present, validated with --locked
 ```
@@ -254,20 +258,79 @@ check fails the V12 concurrent-edit test and the replace test.
 GlebOS at `/Users/gleb/Claude_Cowork/GlebOS` was never read or written; all tests use temporary
 synthetic vaults.
 
+## B2/B3 delivered
+
+| File | Contract | Scenarios verified |
+|---|---|---|
+| `loop/vault/onboarding.py` | vault §1, §4 read-only onboarding | **V01**, **V26** |
+| `loop/vault/policy.py` | vault §3 loading, precedence, conflicts | **V27**, **V28** |
+
+Dry run is the **default** for apply: pointing a new tool at years of notes and having it
+reorganise them is the failure users fear, so writing has to be earned with an explicit flag.
+Precedence never consults modification time — recency is not authority — and a conflict between
+equal-authority documents is reported with both paths rather than resolved by picking one.
+A prepared routine's `enabled: true` is the author's intent, not permission: activation needs an
+authenticated event, or anyone able to write to the vault could schedule background work.
+
+*Fixture correction:* layout detection failed because the fixture's `CLAUDE.md` was thinner than
+the observed vault it reproduces. The fixture was fixed to name the numbered folders, rather than
+weakening the detector to match an under-specified fixture.
+
+**Mutations verified:** removing last-valid policy retention fails the V27 retention test;
+removing the dry-run guard fails the V01 no-writes test.
+
+## B6–B8 delivered — Stage B complete
+
+| File | Contract | Scenarios verified |
+|---|---|---|
+| `loop/vault/receipts.py` | vault §6 evidence | **V06**, **V07**, **V21**, **V23**, **V24**, **V29** |
+| `loop/vault/compiler.py` | vault §2/§6 rules 1–9 | **V08**–**V11**, **V14**–**V18**, **V22**, **V32** |
+| `loop/vault/search.py` | vault §6 retrieval | **V25**, **V31** |
+
+Coverage is tracked as **byte ranges**, not a boolean: a long source read as a preview would
+otherwise "have a receipt" while the cited claim sits in the unread remainder. Classification from
+a preview is refused outright.
+
+The compiler's hardest rule is 8 — *extract distinct concepts and connect them*. An implementation
+eager to satisfy it will invent a second page and a plausible link. A genuinely isolated one-fact
+source therefore yields `needs_context` and stays **pending**: filed, not compiled. Contradictions
+are never resolved by preferring the newer or more confident claim; both sides are retained,
+confidence becomes `contested`, and an open question is recorded. Rule 5 survives a rule 9 merge:
+a human-owned page cannot be absorbed by rewriting it.
+
+Retrieval is FTS5, not embeddings — a knowledge base that stops being searchable when Ollama is
+down is not a knowledge base. Privacy filtering happens **in the SQL**, so a caller preparing
+content for a cloud model never loads private rows at all.
+
+**Mutations verified (Stage B):** path confinement, expected-hash check, last-valid policy
+retention, dry-run guard, receipt range coverage, receipt hash check, contradiction retention,
+human-ownership guard, search privacy filter. Each was disabled and confirmed to fail its tests.
+
+*Also fixed:* one V15 assertion ended in `or True`, making it vacuous. Replaced with two real
+assertions.
+
 ## Exact next step
 
-**WP3 continued — B2/B3 (onboarding and policy), then B6–B8.**
+**Work package 4 (CLAUDE_EXECUTION.md): Stage C foundation** — typed plans, the operation
+ledger and approvals, registry snapshots and typed tool wrappers.
 
-1. **B2** `loop/vault/onboarding.py`: read-only layout detection and a dry-run map (**V01** — no
-   file writes, no new PARA roots).
-2. **B3** `loop/vault/policy.py`: rule loading with the precedence order from vault §3, and
-   explicit policy conflicts (**V26**, **V27**, **V28**). The fixture already contains the v1
-   `Zettel.md` template and the *prepared but unregistered* routine these need.
-3. **B6** receipts (**V06**, **V07**, **V21**, **V23**, **V24**, **V29**), **B7** compiler rules
-   1–9 (**V08**–**V11**, **V14**–**V18**, **V22**, **V32**), **B8** FTS5 retrieval (**V25**,
-   **V31**).
+1. **C1** `loop/runtime/planner.py`: typed plans, work items, dependency DAG validation
+   (**A01–A06**).
+2. **C2** `loop/runtime/authority.py`: privacy and authority propagation through assignments;
+   forged tool arguments cannot override injected authority (**A07–A12**, **LG04**).
+3. **C3** budgets, cancellation, partial results (**A13–A18**) — reuse `loop/ai/budget.py`.
+4. **C4** `loop/runtime/operations.py`: operations, approvals, stable effect slots
+   (**A19–A23**, groundwork for **LG07**, **LG08**).
+5. **C5** `loop/capabilities/registry.py`: manifest validation and registry snapshots
+   (**EX01–EX07**).
 
-Remaining V scenarios: 23 of 32.
+Then WP5 (coordinator + generic runners, **LG01/LG02/LG04**) and WP6 (checkpointer durability,
+**LG05–LG10**, **LG12**).
+
+Relevant sections: `docs/specification/agent-stack.md` §1–§2; runtime §5 (plan/capability
+contracts), §10 (authorization); `capabilities/README.md`; acceptance §5 and §9.
+
+Remaining V scenarios: **0** — Stage B complete.
 
 Relevant sections: vault §1–§4 (layout, rules, loading order, onboarding additions), §6 (compile
 contract); acceptance §4. (vault gateway, policy, capture, receipts, compiler,

@@ -12,7 +12,7 @@ A green test count is not coverage: a row is `verified` only when its named test
 |---|---|---:|---:|---:|---:|
 | A | 2. Commitments and everyday interaction | 15 | 11 | 0 | 4 |
 | A | 3. Time, durability and delivery | 17 | 14 | 0 | 3 |
-| B | 4. Knowledge and vault fidelity | 32 | 9 | 0 | 23 |
+| B | 4. Knowledge and vault fidelity | 32 | 32 | 0 | 0 |
 | C | 5. Team coordination, privacy and control | 23 | 0 | 0 | 23 |
 | D | 6. Proactivity and learning | 21 | 0 | 0 | 21 |
 | E | 7. Travel itinerary capability | 24 | 0 | 0 | 24 |
@@ -20,7 +20,7 @@ A green test count is not coverage: a row is `verified` only when its named test
 | C | 9. Capability extensibility | 14 | 0 | 0 | 14 |
 | E | 10. Build, migration, operations and release | 14 | 0 | 0 | 14 |
 | C/E | 11. Standard agent stack | 12 | 0 | 0 | 12 |
-| — | **Total** | **196** | **37** | **0** | **159** |
+| — | **Total** | **196** | **60** | **0** | **136** |
 
 
 ## 2. Commitments and everyday interaction
@@ -75,38 +75,38 @@ Stage **B** · planned milestones **B2–B8**
 
 | ID | Given / action | Required result | Milestone | Implementation | Test | Status |
 |---|---|---|---|---|---|---|
-| V01 | Onboard observed v2 fixture in dry-run | Correct map/conflicts; no file writes, no new PARA roots | B2–B8 | — | — | pending |
+| V01 | Onboard observed v2 fixture in dry-run | Correct map/conflicts; no file writes, no new PARA roots | B2–B3 | `loop/vault/onboarding.py` | `test_onboarding_policy.py::test_v01_*` | verified |
 | V02 | Capture a short fact with trailing whitespace and a pipe in body | Body preserved exactly; valid frontmatter and one six-column ledger row | B4–B5 | `loop/vault/capture.py + ledger.py` | `test_capture_ledger.py::test_v02_*` | verified |
 | V03 | Capture two notes with same title/day | Distinct reserved filenames; neither overwritten | B4–B5 | `loop/vault/capture.py` | `test_capture_ledger.py::test_v03_*` | verified |
 | V04 | Crash after raw file but before ledger | Recovery registers same source; no second file or false prior “saved” | B4–B5 | `loop/vault/gateway.py + capture.py` | `test_capture_ledger.py::test_v04_*, test_vault_gateway.py::test_v04_*` | verified |
 | V05 | Crash after raw+ledger but before response | Replay returns existing saved capture | B4–B5 | `loop/vault/capture.py` | `test_capture_ledger.py::test_v05_*, test_vault_gateway.py::test_v05_*` | verified |
-| V06 | Compile without full-source receipt, or with changed hash | Evidence validation fails before wiki mutation | B2–B8 | — | — | pending |
-| V07 | Long source read in chunks | Complete byte/range coverage recorded; no preview-only classification | B2–B8 | — | — | pending |
-| V08 | Source touches several existing concepts | Meaningful updates and valid links, all with actual evidence; no forced new page count | B2–B8 | — | — | pending |
-| V09 | Genuine isolated one-fact source | Capture retained, needs_context, pending ledger; no fabricated concept/link | B2–B8 | — | — | pending |
-| V10 | Contradictory source | Both claims retained/attributed, contested confidence, open-question entry | B2–B8 | — | — | pending |
-| V11 | Existing human-owned page | Original body remains unchanged; additions limited to Compiler notes and permitted me… | B2–B8 | — | — | pending |
+| V06 | Compile without full-source receipt, or with changed hash | Evidence validation fails before wiki mutation | B6 | `loop/vault/receipts.py` | `test_receipts.py::test_v06_*` | verified |
+| V07 | Long source read in chunks | Complete byte/range coverage recorded; no preview-only classification | B6 | `loop/vault/receipts.py` | `test_receipts.py::test_v07_*` | verified |
+| V08 | Source touches several existing concepts | Meaningful updates and valid links, all with actual evidence; no forced new page count | B7 | `loop/vault/compiler.py` | `test_compiler.py::test_v08_*` | verified |
+| V09 | Genuine isolated one-fact source | Capture retained, needs_context, pending ledger; no fabricated concept/link | B7 | `loop/vault/compiler.py` | `test_compiler.py::test_v09_*` | verified |
+| V10 | Contradictory source | Both claims retained/attributed, contested confidence, open-question entry | B7 | `loop/vault/compiler.py` | `test_compiler.py::test_v10_*` | verified |
+| V11 | Existing human-owned page | Original body remains unchanged; additions limited to Compiler notes and permitted me… | B7 | `loop/vault/compiler.py` | `test_compiler.py::test_v11_*` | verified |
 | V12 | Existing human-owned page has newer human edit during run | Conflict and fresh proposal; no forced overwrite | B4–B5 | `loop/vault/gateway.py` | `test_vault_gateway.py::test_v12_*` | verified |
 | V13 | Crash after first of multiple wiki updates | Resume by operation IDs without duplicate append; ledger remains pending until comple… | B4–B5 | `loop/vault/gateway.py` | `test_vault_gateway.py::test_v13_*` | verified |
-| V14 | Bare URL under single-source ingest | No fetch; unfetched/appropriate deferred result, not invented page content | B2–B8 | — | — | pending |
-| V15 | Authorized sweep fetches bare URL | New fetched raw source, origin/time, full read; original bookmark bytes unchanged | B2–B8 | — | — | pending |
-| V16 | URL returns login shell/permanent denial | No compiled claims; explicit unfetchable reason/date | B2–B8 | — | — | pending |
-| V17 | Transient fetch outage | Pending with bounded retry, not permanent unfetchable or fabricated content | B2–B8 | — | — | pending |
-| V18 | Repeated sweep with no pending rows | Bounded staleness/duplicate checks and same-day appended run report | B2–B8 | — | — | pending |
+| V14 | Bare URL under single-source ingest | No fetch; unfetched/appropriate deferred result, not invented page content | B7 | `loop/vault/compiler.py` | `test_compiler.py::test_v14_*` | verified |
+| V15 | Authorized sweep fetches bare URL | New fetched raw source, origin/time, full read; original bookmark bytes unchanged | B7 | `loop/vault/compiler.py` | `test_compiler.py::test_v15_*` | verified |
+| V16 | URL returns login shell/permanent denial | No compiled claims; explicit unfetchable reason/date | B7 | `loop/vault/compiler.py` | `test_compiler.py::test_v16_*` | verified |
+| V17 | Transient fetch outage | Pending with bounded retry, not permanent unfetchable or fabricated content | B7 | `loop/vault/compiler.py` | `test_compiler.py::test_v17_*` | verified |
+| V18 | Repeated sweep with no pending rows | Bounded staleness/duplicate checks and same-day appended run report | B7 | `loop/vault/compiler.py` | `test_compiler.py::test_v18_*` | verified |
 | V19 | NFC/NFD path identities and migrated emoji names | No false orphan/duplicate; existing filename preserved | B4–B5 | `loop/vault/ledger.py` | `test_capture_ledger.py::test_v19_*` | verified |
 | V20 | Different files normalize to same identity | Explicit conflict; never choose a file silently | B4–B5 | `loop/vault/ledger.py` | `test_capture_ledger.py::test_v20_*` | verified |
-| V21 | Archived source referenced by old wiki page | Resolve explicit provenance mapping; preserve historical evidence | B2–B8 | — | — | pending |
-| V22 | Merge near-duplicate knowledge | Stronger page keeps both sources; weaker archived with trail; human-body rule still h… | B2–B8 | — | — | pending |
-| V23 | Draft output with only uncompiled sources | Knowledge-gap or authorized compile first; output never directly grounded only in raw | B2–B8 | — | — | pending |
-| V24 | Save an answer from research session | Resolve selected claims and original sources; model answer is not independent evidence | B2–B8 | — | — | pending |
-| V25 | Missing embeddings/Ollama indexing | Lexical/title search works with privacy filters and source-layer labels | B2–B8 | — | — | pending |
-| V26 | Legacy templates conflict with v2 schema | Authoritative rule wins; new wiki sources/owner/confidence valid | B2–B8 | — | — | pending |
-| V27 | Policy conflict or malformed routine edit | Last valid scoped policy retained; unrelated reminders/capture continue | B2–B8 | — | — | pending |
-| V28 | Prepared routine document exists but unregistered | No scheduler activation, background compile or git commit | B2–B8 | — | — | pending |
-| V29 | Scriptorium adapter used | Same tests as builtin; source existence alone fails read-evidence test; refusal not b… | B2–B8 | — | — | pending |
+| V21 | Archived source referenced by old wiki page | Resolve explicit provenance mapping; preserve historical evidence | B6 | `loop/vault/receipts.py` | `test_receipts.py::test_v21_*` | verified |
+| V22 | Merge near-duplicate knowledge | Stronger page keeps both sources; weaker archived with trail; human-body rule still h… | B7 | `loop/vault/compiler.py` | `test_compiler.py::test_v22_*` | verified |
+| V23 | Draft output with only uncompiled sources | Knowledge-gap or authorized compile first; output never directly grounded only in raw | B6 | `loop/vault/receipts.py` | `test_receipts.py::test_v23_*` | verified |
+| V24 | Save an answer from research session | Resolve selected claims and original sources; model answer is not independent evidence | B6 | `loop/vault/receipts.py` | `test_receipts.py::test_v24_*` | verified |
+| V25 | Missing embeddings/Ollama indexing | Lexical/title search works with privacy filters and source-layer labels | B8 | `loop/vault/search.py` | `test_search.py::test_v25_*` | verified |
+| V26 | Legacy templates conflict with v2 schema | Authoritative rule wins; new wiki sources/owner/confidence valid | B2–B3 | `loop/vault/policy.py + onboarding.py` | `test_onboarding_policy.py::test_v26_*` | verified |
+| V27 | Policy conflict or malformed routine edit | Last valid scoped policy retained; unrelated reminders/capture continue | B2–B3 | `loop/vault/policy.py` | `test_onboarding_policy.py::test_v27_*` | verified |
+| V28 | Prepared routine document exists but unregistered | No scheduler activation, background compile or git commit | B2–B3 | `loop/vault/policy.py` | `test_onboarding_policy.py::test_v28_*` | verified |
+| V29 | Scriptorium adapter used | Same tests as builtin; source existence alone fails read-evidence test; refusal not b… | B6 | `loop/vault/receipts.py` | `test_receipts.py::test_v29_*` | verified |
 | V30 | Gateway receives ../ path, absolute escape, or escaping symlink | Refuse before read/write beyond selected scope | B4–B5 | `loop/vault/gateway.py` | `test_vault_gateway.py::test_v30_*` | verified |
-| V31 | User requests meeting note | Correct journal schema/path and attendees; reusable facts separately captured before… | B2–B8 | — | — | pending |
-| V32 | Wiki confidence prose differs from metadata | Metadata aligned to preserved prose per governing rule; no silent rewriting | B2–B8 | — | — | pending |
+| V31 | User requests meeting note | Correct journal schema/path and attendees; reusable facts separately captured before… | B8 | `loop/vault/search.py` | `test_search.py::test_v31_*` | verified |
+| V32 | Wiki confidence prose differs from metadata | Metadata aligned to preserved prose per governing rule; no silent rewriting | B7 | `loop/vault/compiler.py` | `test_compiler.py::test_v32_*` | verified |
 
 ## 5. Team coordination, privacy and control
 

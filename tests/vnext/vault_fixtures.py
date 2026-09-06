@@ -24,10 +24,17 @@ from pathlib import Path
 LEDGER_HEADER = ("| source | batch | added | status | compiled | pages produced |\n"
                  "|---|---|---|---|---|---|\n")
 
+#: Mirrors the observed vault's entry point (vault §1): it names the v2 layout
+#: and the numbered folders, which is what layout detection reads.
 ROOT_CLAUDE_MD = """# GlebOS
 
-Layout v2: source → wiki → output.
+Layout v2: source → wiki → output. This replaces the earlier PARA-folder design.
 
+- `0-raw/` verbatim sources and `0-raw/_ledger.md`
+- `1-wiki/` concepts, entities and topics
+- `2-projects/` project manifests
+- `3-output/` deliverables derived from the wiki
+- `4-journal/` daily, meeting and weekly notes
 - Rules: `_ctx/rules/compile.md`, `_ctx/rules/naming.md`, `_ctx/rules/frontmatter.md`
 - Roles: `_ctx/agents/`
 - Personal context: `_mem/profile.md`
