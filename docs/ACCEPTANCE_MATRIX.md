@@ -17,10 +17,10 @@ A green test count is not coverage: a row is `verified` only when its named test
 | D | 6. Proactivity and learning | 21 | 0 | 0 | 21 |
 | E | 7. Travel itinerary capability | 24 | 0 | 0 | 24 |
 | D | 8. Weather from multiple sources | 24 | 0 | 0 | 24 |
-| C | 9. Capability extensibility | 14 | 0 | 0 | 14 |
+| C | 9. Capability extensibility | 14 | 8 | 0 | 6 |
 | E | 10. Build, migration, operations and release | 14 | 0 | 0 | 14 |
 | C/E | 11. Standard agent stack | 12 | 0 | 0 | 12 |
-| — | **Total** | **196** | **77** | **0** | **119** |
+| — | **Total** | **196** | **85** | **0** | **111** |
 
 
 ## 2. Commitments and everyday interaction
@@ -234,16 +234,16 @@ Stage **C** · planned milestones **C5–C7**
 
 | ID | Given / action | Required result | Milestone | Implementation | Test | Status |
 |---|---|---|---|---|---|---|
-| EX01 | Scaffold a simple local capability from the template | Manifest, instructions, schemas and examples created at explicit path; existing files… | C5–C7 | — | — | pending |
-| EX02 | Register two unrelated fixture packs | Discovered and invoked through unchanged Coordinator/core/CLI/API/bot handlers | C5–C7 | — | — | pending |
-| EX03 | Unknown schema ref, path escape, invalid manifest or colliding operation name | Validation errors before import/network/model/effects; no silent namespace takeover | C5–C7 | — | — | pending |
-| EX04 | Missing/incompatible dependency or cross-pack dependency cycle | Visible blocked availability; no model claim that capability executed | C5–C7 | — | — | pending |
-| EX05 | Pure instruction pack with existing tools | No new Python, DB table or custom scheduler required; shared artifact storage and rol… | C5–C7 | — | — | pending |
+| EX01 | Scaffold a simple local capability from the template | Manifest, instructions, schemas and examples created at explicit path; existing files… | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex01_*` | verified |
+| EX02 | Register two unrelated fixture packs | Discovered and invoked through unchanged Coordinator/core/CLI/API/bot handlers | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex02_*` | verified |
+| EX03 | Unknown schema ref, path escape, invalid manifest or colliding operation name | Validation errors before import/network/model/effects; no silent namespace takeover | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex03_*` | verified |
+| EX04 | Missing/incompatible dependency or cross-pack dependency cycle | Visible blocked availability; no model claim that capability executed | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex04_*` | verified |
+| EX05 | Pure instruction pack with existing tools | No new Python, DB table or custom scheduler required; shared artifact storage and rol… | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex05_*` | verified |
 | EX06 | Workflow invokes registered operations using typed references | DAG/schema validation, shared budget/labels/authority; no eval or unbounded loop | C5–C7 | — | — | pending |
 | EX07 | Generic invocation via CLI, /do and HTTP | Same validated input/output, authentication, idempotency and error/run envelopes | C5–C7 | — | — | pending |
-| EX08 | Pack requests extra recipients, spending or arbitrary direct tool access | Manifest cannot grant authority; executor limits effects to actual request/policy | C5–C7 | — | — | pending |
-| EX09 | Enable then disable with queued/in-flight work | New work blocked; pending dependent effects cancelled; in-flight checks respect cance… | C5–C7 | — | — | pending |
-| EX10 | Upgrade during a running job, same-version byte change, or restart pending wo… | Exact package/schema version pinned; same-version mutation rejected; unavailable vers… | C5–C7 | — | — | pending |
+| EX08 | Pack requests extra recipients, spending or arbitrary direct tool access | Manifest cannot grant authority; executor limits effects to actual request/policy | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex08_*` | verified |
+| EX09 | Enable then disable with queued/in-flight work | New work blocked; pending dependent effects cancelled; in-flight checks respect cance… | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex09_*` | verified |
+| EX10 | Upgrade during a running job, same-version byte change, or restart pending wo… | Exact package/schema version pinned; same-version mutation rejected; unavailable vers… | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex10_*` | verified |
 | EX11 | Breaking schema/effect change and rollback | Explicit migration/diff and authority; old state preserved; rollback cannot undo remo… | C5–C7 | — | — | pending |
 | EX12 | Offline conformance examples attempt network/secret/vault access | Denied by isolated test harness; user's real environment not used | C5–C7 | — | — | pending |
 | EX13 | New domain uses capability_objects and concurrent edits | Registered payload schema and expected_version enforced; privacy propagated without b… | C5–C7 | — | — | pending |

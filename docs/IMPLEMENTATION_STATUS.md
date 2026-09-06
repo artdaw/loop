@@ -3,7 +3,7 @@
 **Read this file, `IMPLEMENTATION_PLAN.md`, and `ACCEPTANCE_MATRIX.md` to resume without the
 original conversation.** Verify each claim against the worktree before trusting it.
 
-**Branch:** `vnext-implementation` · **Last updated:** 2026-09-06 · **Stage:** A complete; WP2 complete; Stage B complete; **WP4 C1–C4 done**; C5 registry next
+**Branch:** `vnext-implementation` · **Last updated:** 2026-09-06 · **Stage:** A complete; WP2 complete; Stage B complete; **WP4 complete (C1–C5)**; WP5 coordinator + runners next
 
 ---
 
@@ -58,7 +58,8 @@ Do not read the Phase 4 README/spec completion claims as evidence for this targe
 | WP4·C2 authority + privacy propagation | **done** | same file — A06, A08–A13, A23, **LG04** |
 | WP4·C3 shared budget through contexts | **done** | same file — A07 |
 | WP4·C4 operation ledger + approvals | **done** | `test_operations.py` 25 passed — A14–A17, LG07 (replay) |
-| WP4·C5 capability registry | **next** | — |
+| WP4·C5 capability registry | **done** | `test_registry.py` 37 passed — EX01–EX05, EX08–EX10 |
+| WP5 coordinator + generic runners | **next** | — |
 | A3–A9 | pending | — |
 | Stages B–E | pending | — |
 
@@ -72,10 +73,10 @@ mypy .              Success: no issues found in 61 source files
 uv.lock             ABSENT
 python              3.12.11
 
-# current, WP4 C1–C4 (2026-09-06)
-pytest              840 passed (288 legacy + 552 vnext), 1 warning
+# current, WP4 complete (2026-09-06)
+pytest              877 passed (288 legacy + 589 vnext), 1 warning
 ruff check .        All checks passed!
-mypy .              Success: no issues found in 119 source files
+mypy .              Success: no issues found in 123 source files
 uv sync --locked    reproducible; 176 packages resolved
 uv.lock             present, validated with --locked
 ```
@@ -342,9 +343,48 @@ trigger it.
 **Mutations verified:** approval payload binding, reserved-argument stripping. Both fail their
 tests when removed.
 
+## C5 delivered — WP4 complete
+
+`loop/capabilities/registry.py` + `tests/vnext/pack_fixtures.py`. Verifies **EX01–EX05**,
+**EX08**, **EX09**, **EX10**.
+
+Validation runs without importing pack code and without any network — a pack is data until
+explicitly enabled. Refused before anything executes: schema `$ref`s leaving the package, remote
+`$ref`s (a validator that fetches gives a pack an egress channel *before* enablement), reserved
+builtin namespaces, two bindings for one mode, undeclared tools, and `default_arguments` carrying
+authority. **Effects are declarations, not grants**; a manifest states what it would need and the
+executor still requires real scoped authority.
+
+Versions are immutable: changed bytes claiming the same version are rejected rather than
+hot-swapped, because a job pinned to a version must be able to trust the bytes behind it.
+
+The two fixture packs are deliberately **unrelated domains** (plant care, bike service) — two packs
+from one domain could share a special case without anyone noticing, which would defeat EX02.
+
+**Two test-quality problems found and fixed.** The cross-pack cycle test patched fixtures by string
+replacement, which also matched inside the `tools:` list at a different indent; both packs became
+invalid, so no cycle could be found and the test passed for the wrong reason. It now builds the
+manifests explicitly and asserts both packs are valid first. Separately, mutation-testing the `..`
+path check did *not* fail any test — the resolve-based containment check catches it anyway. With
+**both** disabled the test fails, so the behaviour is protected; the `..` check is documented as
+defence-in-depth rather than the load-bearing mechanism.
+
 ## Exact next step
 
-**WP4·C5 — the capability registry** (`loop/capabilities/registry.py`), then WP5. — typed plans, the operation
+**Work package 5: coordinator and generic runners** (agent-stack §2).
+
+1. `loop/agents/coordinator.py` — generic stages only: load context, discover operations, produce
+   a typed plan, invoke ready assignments, validate, resolve approval, compose a response. **No
+   weather/travel/domain edges.**
+2. Generic runners: `create_agent` for agent mode, a declarative DAG compiled to `StateGraph` for
+   workflow mode, registered handlers for adapter mode.
+3. Typed tool wrappers built from a validated registry snapshot, filtered per call.
+4. **LG01** (an agent pack runs through real `create_agent` with a fake chat model, asserting
+   persisted output and evidence, not invocation counts) and **LG02** (both fixture packs run with
+   a recorded file diff proving no coordinator/channel/schema change).
+
+Then WP6: `AsyncSqliteSaver` at `data/graph-checkpoints.sqlite`, run mappings, resume dispatch —
+**LG06**, **LG08**–**LG11**, and the remaining A18–A22, EX06–EX07, EX11–EX14. — typed plans, the operation
 ledger and approvals, registry snapshots and typed tool wrappers.
 
 Targets **EX01–EX07**: manifest validation, registry snapshots, colliding operation names,
