@@ -3,25 +3,17 @@
 **Read this file, `IMPLEMENTATION_PLAN.md`, and `ACCEPTANCE_MATRIX.md` to resume without the
 original conversation.** Verify each claim against the worktree before trusting it.
 
-**Branch:** `vnext-implementation` · **Last updated:** 2026-09-06 · **Stage:** A complete; WP2 complete; Stage B complete; **WP4 complete (C1–C5)**; WP5 coordinator + runners next
+**Branch:** `vnext-implementation` · **Last updated:** 2026-09-06 · **Stage:** A complete; WP2 complete; Stage B complete; **WP5 complete**; WP6 checkpoint durability next
 
 ---
 
 ## Honest summary
 
-**Specification update, 2026-09-06:** target is now 1.3 with nine normative
-documents and 196 scenarios. The 12 new LG scenarios are pending. Previously
-recorded evidence remains unchanged; this documentation update ran no runtime
-tests. Read [agent-stack.md](specification/agent-stack.md) before further agent
-implementation. Continue A7, then introduce ModelGateway before model-driven
-Stage B and the required LangGraph/generic runners during C.
-
-Planning artefacts exist, the baseline is recorded, and **milestone A1 (foundations) is complete
-and verified**, and **A2 (schema, versioned migrations, legacy upgrade)** is complete and
-verified, and **A3 (intake), A4 (task service) and A5 (triggers/DST/catch-up)** are complete and
-verified. **15 of 196 acceptance scenarios are recorded as verified** with named tests: T02, T03, T11–T15,
-D02, D03, D05, D07–D11. The rest remain pending. The archived Phase 4 system remains green and is the
-migration source, not the target.
+Specification 1.3 has nine normative documents and 196 scenarios. **87 of 196
+acceptance scenarios are recorded as verified** with named tests. Stage A, the
+ModelGateway, Stage B, the C foundation and WP5's generic execution path are
+complete. The archived Phase 4 system remains green and is the migration source,
+not the target.
 
 Do not read the Phase 4 README/spec completion claims as evidence for this target.
 
@@ -59,7 +51,7 @@ Do not read the Phase 4 README/spec completion claims as evidence for this targe
 | WP4·C3 shared budget through contexts | **done** | same file — A07 |
 | WP4·C4 operation ledger + approvals | **done** | `test_operations.py` 25 passed — A14–A17, LG07 (replay) |
 | WP4·C5 capability registry | **done** | `test_registry.py` 37 passed — EX01–EX05, EX08–EX10 |
-| WP5 coordinator + generic runners | **next** | — |
+| WP5 coordinator + generic runners | **done** | `test_capability_runners.py` — LG01, LG02 |
 | A3–A9 | pending | — |
 | Stages B–E | pending | — |
 
@@ -73,10 +65,10 @@ mypy .              Success: no issues found in 61 source files
 uv.lock             ABSENT
 python              3.12.11
 
-# current, WP4 complete (2026-09-06)
-pytest              877 passed (288 legacy + 589 vnext), 1 warning
+# current, WP5 complete (2026-09-06)
+pytest              879 passed (288 legacy + 591 vnext), 1 warning
 ruff check .        All checks passed!
-mypy .              Success: no issues found in 123 source files
+mypy .              Success: no issues found in 127 source files
 uv sync --locked    reproducible; 176 packages resolved
 uv.lock             present, validated with --locked
 ```
@@ -369,23 +361,31 @@ path check did *not* fail any test — the resolve-based containment check catch
 **both** disabled the test fails, so the behaviour is protected; the `..` check is documented as
 defence-in-depth rather than the load-bearing mechanism.
 
+## WP5 delivered — generic coordinator and runners
+
+| File | Contract | Scenarios verified |
+|---|---|---|
+| `loop/agents/coordinator.py` | agent-stack §2 stable generic stages | **LG02** |
+| `loop/capabilities/runners.py` | agent/workflow/adapter dispatch, typed wrappers, artifact persistence | **LG01**, **LG02** |
+| `loop/ai/model_gateway.py` | native LangChain-message policy adapter | **LG01** |
+
+Agent packs execute through LangChain's real `create_agent`; workflow packs compile their
+declarative DAG to LangGraph `StateGraph`; adapter mode resolves only explicitly registered trusted
+handlers. The same coordinator graph runs load, discovery, typed planning, ready invocation,
+validation, approval resolution and grounded composition for every domain.
+
+LG01 asserts the stored artifact payload and evidence. Evidence comes from the authorized tool
+result rather than from the model's final prose, and the final object must pass the pack's JSON
+Schema before it is persisted. LG02 runs the unrelated plant-care agent and bike-service workflow
+through the same coordinator and records hashes for coordinator, channel/service and core-schema
+files before and after; none changes. Declared remote-write/spend effects are refused before a
+handler can run until WP6 supplies a bound durable approval.
+
 ## Exact next step
 
-**Work package 5: coordinator and generic runners** (agent-stack §2).
-
-1. `loop/agents/coordinator.py` — generic stages only: load context, discover operations, produce
-   a typed plan, invoke ready assignments, validate, resolve approval, compose a response. **No
-   weather/travel/domain edges.**
-2. Generic runners: `create_agent` for agent mode, a declarative DAG compiled to `StateGraph` for
-   workflow mode, registered handlers for adapter mode.
-3. Typed tool wrappers built from a validated registry snapshot, filtered per call.
-4. **LG01** (an agent pack runs through real `create_agent` with a fake chat model, asserting
-   persisted output and evidence, not invocation counts) and **LG02** (both fixture packs run with
-   a recorded file diff proving no coordinator/channel/schema change).
-
-Then WP6: `AsyncSqliteSaver` at `data/graph-checkpoints.sqlite`, run mappings, resume dispatch —
-**LG06**, **LG08**–**LG11**, and the remaining A18–A22, EX06–EX07, EX11–EX14. — typed plans, the operation
-ledger and approvals, registry snapshots and typed tool wrappers.
+**Work package 6: checkpoint durability.** Add `AsyncSqliteSaver` at
+`data/graph-checkpoints.sqlite`, run mappings and resume dispatch —
+**LG06**, **LG08**–**LG11**, and the remaining A18–A22, EX06–EX07, EX11–EX14.
 
 Targets **EX01–EX07**: manifest validation, registry snapshots, colliding operation names,
 schema-ref and path-escape rejection, dependency/cycle detection, and the offline conformance
@@ -407,4 +407,3 @@ policy adapter, required *before* any model-driven Stage B work.
 
 
  (runtime §4, interfaces §9, acceptance §1):
-

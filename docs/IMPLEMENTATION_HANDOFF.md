@@ -15,6 +15,21 @@ expecting code changes. Claude Code's documented workflow supports repository
 exploration, planning, implementation and verification.
 [Claude Code best practices](https://code.claude.com/docs/en/best-practices).
 
+## Current resumable checkpoint — 2026-09-06
+
+WP5 is complete. The repository records **87 of 196 acceptance scenarios verified**;
+the last locked run passed **879 tests** with Ruff and mypy clean. Completed work
+includes Stage A, ModelGateway/shared budget policy, all V scenarios in Stage B,
+typed plans/authority/operation ledger, capability registry validation, and the
+generic coordinator plus agent/workflow/adapter runners. LG01 and LG02 have real
+framework evidence in `tests/vnext/test_capability_runners.py`.
+
+Resume at **WP6 checkpoint durability**. Do not rebuild the coordinator or agent
+runner. Extend the existing seams with a versioned run-mapping migration, local
+`AsyncSqliteSaver`, one checkpoint thread per root run, durable resume jobs, and
+approval interrupts tied to the existing operation ledger. The exact order and
+test obligations are in `CLAUDE_EXECUTION.md` and `IMPLEMENTATION_STATUS.md`.
+
 ## Implementation brief
 
 Implement the complete Loop vNext system described by docs/SPECIFICATION.md and
@@ -75,8 +90,8 @@ not replace end-to-end implementation with empty classes or mocked success respo
   behind ModelGateway, create_agent for agent packs, LangGraph coordinator/workflow
   runners, persistent checkpointer and bound interrupt/resume. No custom agent
   loop, domain-specific coordinator branches or direct provider SDK bypass.
-- Introduce ModelGateway before model-driven Stage B work. Stage C must cover
-  LG01–LG12 through real framework execution with fake models; keep Stage A's
+- ModelGateway and the WP5 framework path are complete. Remaining Stage C work must
+  cover LG06–LG10 through real framework execution with fake models; keep Stage A's
   deterministic persistence and scheduling. Graph checkpoints do not replace
   the operation ledger, approvals, task state or delivery receipts.
 
@@ -129,7 +144,11 @@ mandatory scenario as incomplete; optional missing providers must degrade as spe
 
 ## Resume prompt
 
-“Read CLAUDE.md, docs/IMPLEMENTATION_HANDOFF.md, docs/IMPLEMENTATION_PLAN.md,
-docs/IMPLEMENTATION_STATUS.md and docs/ACCEPTANCE_MATRIX.md. Verify the checkpoint
-against the actual worktree, then continue with the next unfinished milestone.
-Preserve completed work and existing user changes. Update the evidence and status.”
+“Read CLAUDE.md, docs/CLAUDE_EXECUTION.md, docs/IMPLEMENTATION_HANDOFF.md,
+docs/IMPLEMENTATION_PLAN.md, docs/IMPLEMENTATION_STATUS.md and
+docs/ACCEPTANCE_MATRIX.md. Preserve the uncommitted work. Verify the focused WP5
+tests and the recorded 87/196 total, then implement WP6 checkpoint durability from
+the existing coordinator and runners. Start with the run-mapping migration and
+restricted local AsyncSqliteSaver factory; continue through durable resume jobs,
+bound approval interrupts, replay/cancellation/version checks, and LG06–LG10 tests.
+Update the matrix and status after each verified slice.”

@@ -206,6 +206,78 @@ class ModelGateway:
         return self._invoke_preferring_local(prompt, system, label, prompt_hash,
                                              budget, purpose)
 
+    def invoke_messages(self, messages: Sequence[Any], *,
+                        labels: Sequence[PrivacyLabel] | None = None,
+                        budget: RootBudget | None = None,
+                        estimated_tokens: int = 0,
+                        purpose: str = "agent",
+                        model_override: Any | None = None,
+                        cloud_model_override: Any | None = None) -> ModelResult:
+        """Policy-check a native LangChain message exchange.
+
+        Agent executors need to preserve tool-call and tool-result messages, so
+        flattening them into the string-oriented :meth:`invoke` boundary would
+        lose protocol data.  This entry point applies the same privacy, budget
+        and metadata rules while leaving the standard message objects intact.
+        The overrides are tool-bound views of models selected by this gateway;
+        callers cannot use them to bypass the label or backend policy.
+        """
+        label = self.resolve_scope(labels or [PrivacyLabel.for_unlabelled_import()])
+        prompt_hash = content_hash(_messages_for_hash(messages))
+        if budget is not None:
+            budget.reserve_model_call(estimated_tokens=estimated_tokens)
+
+        if model_override is not None:
+            try:
+                return self._call_messages(model_override, list(messages), "local",
+                                           label, prompt_hash, budget, purpose)
+            except Exception as exc:
+                if budget is not None:
+                    budget.record_failure()
+                if label.is_local_only:
+                    self.audit.record(ModelCallRecord(
+                        backend="local", prompt_hash=prompt_hash, latency_ms=0,
+                        local_only=True, error_code="privacy_blocked"))
+                    raise PrivacyError(
+                        "This request is local-only and the local model is unavailable. "
+                        "It will not be sent to a cloud provider.",
+                        details={"purpose": purpose}) from exc
+                if cloud_model_override is not None and self.may_use_cloud(label):
+                    return self._call_messages(
+                        cloud_model_override, list(messages), "cloud", label,
+                        prompt_hash, budget, purpose)
+                raise Unavailable(
+                    "The tool-bound local model is unavailable. Agent protocol "
+                    "calls cannot continue with the configured backends.") from exc
+
+        if label.is_local_only:
+            try:
+                return self._call_messages(self.local_model(), list(messages), "local",
+                                           label, prompt_hash, budget, purpose)
+            except Exception as exc:
+                if budget is not None:
+                    budget.record_failure()
+                self.audit.record(ModelCallRecord(
+                    backend="local", prompt_hash=prompt_hash, latency_ms=0,
+                    local_only=True, error_code="privacy_blocked"))
+                raise PrivacyError(
+                    "This request is local-only and the local model is unavailable. "
+                    "It will not be sent to a cloud provider.",
+                    details={"purpose": purpose}) from exc
+
+        try:
+            return self._call_messages(self.local_model(), list(messages), "local",
+                                       label, prompt_hash, budget, purpose)
+        except Exception as exc:
+            if budget is not None:
+                budget.record_failure()
+            if not self.may_use_cloud(label):
+                raise Unavailable(
+                    "The local model is unavailable and cloud use is not "
+                    "authorised for this request.") from exc
+            return self._call_messages(self.cloud_model(), list(messages), "cloud",
+                                       label, prompt_hash, budget, purpose)
+
     def _invoke_local_only(self, prompt: str, system: str | None,
                            label: PrivacyLabel, prompt_hash: str,
                            budget: RootBudget | None, purpose: str) -> ModelResult:
@@ -260,6 +332,12 @@ class ModelGateway:
             messages.append(SystemMessage(content=system))
         messages.append(HumanMessage(content=prompt))
 
+        return self._call_messages(model, messages, backend, label, prompt_hash,
+                                   budget, purpose)
+
+    def _call_messages(self, model: Any, messages: list[Any], backend: str,
+                       label: PrivacyLabel, prompt_hash: str,
+                       budget: RootBudget | None, purpose: str) -> ModelResult:
         started = time.monotonic()
         response = model.invoke(messages)
         latency_ms = int((time.monotonic() - started) * 1000)
@@ -326,3 +404,65 @@ def _response_tokens(response: Any) -> int:
         if isinstance(token_usage, dict):
             return int(token_usage.get("total_tokens") or 0)
     return 0
+
+
+def _messages_for_hash(messages: Sequence[Any]) -> str:
+    """Stable audit input that is hashed immediately and never logged."""
+    serialised = []
+    for message in messages:
+        serialised.append({
+            "type": getattr(message, "type", message.__class__.__name__),
+            "content": getattr(message, "content", str(message)),
+            "tool_calls": getattr(message, "tool_calls", None),
+            "tool_call_id": getattr(message, "tool_call_id", None),
+        })
+    import json
+
+    return json.dumps(serialised, sort_keys=True, ensure_ascii=False, default=str)
+
+
+def gateway_chat_model(gateway: ModelGateway, *, labels: Sequence[PrivacyLabel],
+                       budget: RootBudget | None = None,
+                       purpose: str = "agent") -> Any:
+    """Return a BaseChatModel that routes every create_agent turn via gateway."""
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.outputs import ChatGeneration, ChatResult
+    from pydantic import ConfigDict
+
+    class GatewayChatModel(BaseChatModel):
+        model_config = ConfigDict(arbitrary_types_allowed=True)
+
+        gateway: Any
+        labels: tuple[Any, ...]
+        root_budget: Any = None
+        call_purpose: str = "agent"
+        bound_model: Any = None
+        bound_cloud_model: Any = None
+
+        @property
+        def _llm_type(self) -> str:
+            return "loop-model-gateway"
+
+        def _generate(self, messages: list[Any], stop: list[str] | None = None,
+                      run_manager: Any = None, **kwargs: Any) -> Any:
+            del stop, run_manager, kwargs
+            result = self.gateway.invoke_messages(
+                messages, labels=self.labels, budget=self.root_budget,
+                purpose=self.call_purpose, model_override=self.bound_model,
+                cloud_model_override=self.bound_cloud_model)
+            return ChatResult(generations=[ChatGeneration(message=result.raw)])
+
+        def bind_tools(self, tools: Sequence[Any], *, tool_choice: str | None = None,
+                       **kwargs: Any) -> Any:
+            base = self.bound_model or self.gateway.local_model()
+            bound = base.bind_tools(tools, tool_choice=tool_choice, **kwargs)
+            cloud_bound = None
+            label = self.gateway.resolve_scope(self.labels)
+            if not label.is_local_only and self.gateway.may_use_cloud(label):
+                cloud_bound = self.gateway.cloud_model().bind_tools(
+                    tools, tool_choice=tool_choice, **kwargs)
+            return self.model_copy(update={"bound_model": bound,
+                                           "bound_cloud_model": cloud_bound})
+
+    return GatewayChatModel(gateway=gateway, labels=tuple(labels),
+                            root_budget=budget, call_purpose=purpose)

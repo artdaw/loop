@@ -12,8 +12,8 @@ docs/CLAUDE_EXECUTION.md, then follow docs/IMPLEMENTATION_HANDOFF.md and all
 normative specification contracts. This is an implementation request: proceed
 from inspection through code, migrations, tests and documented verification.
 
-Preserve existing user changes and verified Stage A work. Verify the recorded
-checkpoint before resuming; do not restart completed milestones. Use LangChain
+Preserve existing user changes and all verified work through WP5. Verify the
+recorded checkpoint before resuming; do not restart completed milestones. Use LangChain
 and LangGraph as required, with generic capability runners and the shared policy
 gateway. Follow the ordered migration work packages in CLAUDE_EXECUTION.md.
 
@@ -24,24 +24,31 @@ accurate after each milestone. A dependency import, scaffold or mocked graph is
 not proof of implementation. Do not mark the target complete while mandatory
 acceptance scenarios remain unverified. Do not activate live external actions.
 
-Start by inspecting the worktree, reproducing relevant baseline checks and
-implementing the next unfinished dependency. Make ordinary implementation
+Start by inspecting the worktree, reproducing the focused WP5 checks, then begin
+WP6 with the run-mapping migration and checkpointer factory. Make ordinary implementation
 decisions independently; record consequential decisions and continue useful
 work when an optional provider is unconfigured.
 ```
 
 ## Starting checkpoint
 
-The recorded checkpoint is A1–A6 complete, A7 next, with 15 of 196 acceptance
-scenarios recorded as verified. These are historical claims to check, not results
-rerun while preparing this brief. The worktree includes uncommitted documentation
-and unrelated implementation changes: preserve both. Use the existing implementation
-branch if appropriate; creating a fresh branch must not discard the working tree.
+The recorded checkpoint is **WP5 complete**, with **87 of 196 acceptance scenarios
+verified**. The exact verified path is in `IMPLEMENTATION_STATUS.md` and
+`ACCEPTANCE_MATRIX.md`; check those claims against the worktree rather than rerunning
+earlier milestones from scratch. The last full verification was **879 tests passed,
+Ruff clean, mypy clean across 127 source files, and locked sync resolving 176
+packages**.
 
-Inspect the current pyproject.toml and uv.lock before dependency changes. The
-manifest still declares legacy LangChain/LangGraph ranges and direct provider SDKs.
-Do not remove a dependency while a retained legacy module imports it. Upgrade
-through compatible provider packages and test legacy compatibility explicitly.
+WP5 added `loop/agents/coordinator.py`, `loop/capabilities/runners.py`, and the
+native-message ModelGateway adapter. LG01 and LG02 run through real LangChain
+`create_agent` and LangGraph `StateGraph`, persist validated output/evidence, and
+prove the plant-care and bike-service fixtures need no coordinator/channel/schema
+edit. Preserve those files and tests as the execution seam for WP6.
+
+The worktree contains uncommitted implementation, documentation and older user
+changes. Preserve all of it. Inspect `pyproject.toml` and `uv.lock` before dependency
+changes. Direct provider SDKs remain because retained legacy modules import them;
+do not remove them until those modules are migrated.
 
 ## Ordered migration work packages
 
@@ -49,13 +56,10 @@ These packages refine the existing plan, rather than replacing its A–E milesto
 
 | Order | Work package and likely files | Completion evidence |
 |---|---|---|
-| 1 | Finish A7–A9: loop/runtime notifications, outbox, service and end-to-end task flow | Task survives restart; done/snooze cancel stale delivery; unknown send remains unknown; required A scenarios pass |
-| 2 | Before model-driven B: loop/ai/model_gateway.py, provider construction, middleware, pyproject.toml and uv.lock | Actual LangChain fake-model path; LG03 privacy denial and LG05 shared budget tests; install works with optional cloud unconfigured |
-| 3 | Complete B: vault gateway, policy, capture, receipts, compiler and retrieval | Synthetic GlebOS capture → compile → cited answer; model calls use gateway; V scenarios pass |
-| 4 | C foundation: typed plans, operation ledger/approvals, registry snapshots and tool wrappers | C1–C5 contracts; forged tool arguments cannot override authority; input/output and dependencies validated |
-| 5 | C execution: loop/agents/coordinator.py and generic agent/workflow/adapter runners | LG01, LG02, LG04 and EX scenarios through real create_agent/StateGraph; two unrelated packs added without core edits |
-| 6 | C durability: run mapping migration, AsyncSqliteSaver, resume dispatch and lifecycle | LG05–LG10 and LG12; restart, replay, parallel isolation, cancellation and bound approval resume demonstrated |
-| 7 | D/E: weather, travel, learning, remaining interfaces and operations | Domain acceptance scenarios; LG11 paired backup/restore and retention; full reconstruction workflow |
+| 1–5 | **Complete:** Stage A, ModelGateway, Stage B, C foundation, coordinator and generic runners | 87 scenarios verified; LG01–LG05, LG12 and the recorded A/V/EX coverage stay green |
+| 6 | **Next — C durability:** run mapping migration, `AsyncSqliteSaver`, checkpointed coordinator, resume jobs and approval interrupts | LG06–LG10; crash boundaries use the operation ledger; paused runs retain pinned graph/schema/pack versions |
+| 7 | C extension lifecycle: typed workflow references, capability objects, offline conformance, init/test/enable/upgrade/rollback, CLI/API/bot invocation | EX06, EX07, EX11–EX14 and remaining A18–A22 with shared authentication/error envelopes |
+| 8 | D/E: weather, travel, learning, remaining interfaces and operations | Domain acceptance scenarios; LG11 paired backup/restore/forgetting; full reconstruction workflow |
 
 File names identify intended seams; adapt them to existing modules without creating
 parallel implementations. Implement privacy and budget middleware before any new
@@ -73,14 +77,14 @@ validate, offline test and enable workflow with no coordinator edits.
    tool wrappers. Assert persisted output and evidence, not just invocation counts.
 2. Add an unrelated agent pack and workflow pack using the public template and CLI.
    Record the file diff proving no coordinator/channel/schema changes were needed.
-3. Interrupt for approval, terminate the process, restart, and resume the same run.
+3. **WP6 next:** interrupt for approval, terminate the process, restart, and resume the same run.
    Assert that wrong actors, changed payloads, expired approvals and cancellation
    cannot execute, and that accepted execution uses the original operation key.
-4. Inject crashes around domain/checkpoint commits and remote sends. Assert no
+4. **WP6 next:** inject crashes around domain/checkpoint commits and remote sends. Assert no
    duplicate committed effect and no invented success for uncertain delivery.
 5. Fail the local model with private input, including derived summaries and child
    output. Assert zero cloud calls and no content in remote tracing or audit logs.
-6. Exercise concurrent children and repair attempts against one root budget;
+6. **WP6 next:** exercise concurrent children and repair attempts against one root budget;
    pin package/graph versions across an upgrade and verify isolated child state.
 7. Back up and restore both databases, then exercise forgetting and retention.
    Record LG01–LG12 evidence in the acceptance matrix with real test names.
@@ -103,5 +107,10 @@ paired backup/restore, and working CLI/API/bot paths. Report optional providers
 as unconfigured until configured, and live verification separately from fake-based
 tests. A session ending is a checkpoint, not completion of unfinished work.
 
-To resume in a later Claude session, reuse the copy-paste task above. The updated
-status and matrix determine the next step; do not rely on conversation memory.
+To resume now, implement WP6 in this order: append the domain run-mapping migration;
+add a local restricted-permission `AsyncSqliteSaver` factory; compile the existing
+coordinator with it using one thread per root run; bridge interrupt/resume through
+durable jobs; bind approvals before `interrupt`; then add restart, crash-order,
+wrong-actor/payload/expiry, cancellation, version-pinning and child-isolation tests.
+Do not start weather/travel or broad interface work until this path is green and
+recorded. The updated status and matrix determine the next step after each slice.

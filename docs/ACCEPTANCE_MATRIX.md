@@ -20,7 +20,7 @@ A green test count is not coverage: a row is `verified` only when its named test
 | C | 9. Capability extensibility | 14 | 8 | 0 | 6 |
 | E | 10. Build, migration, operations and release | 14 | 0 | 0 | 14 |
 | C/E | 11. Standard agent stack | 12 | 0 | 0 | 12 |
-| — | **Total** | **196** | **85** | **0** | **111** |
+| — | **Total** | **196** | **87** | **0** | **109** |
 
 
 ## 2. Commitments and everyday interaction
@@ -276,8 +276,8 @@ Specification 1.3 additions; no implementation or verification is claimed.
 
 | ID | Given / action | Required result | Milestone | Implementation | Test | Status |
 |---|---|---|---|---|---|---|
-| LG01 | Agent pack executes | Real create_agent and LangChain model adapter path produces validated output | C1–C8 / E7 | — | — | pending |
-| LG02 | Add two unrelated agent/workflow packs | Both run without coordinator, channel or core schema edits | C1–C8 / E7 | — | — | pending |
+| LG01 | Agent pack executes | Real create_agent and LangChain model adapter path produces validated output | WP5 | `loop/capabilities/runners.py`, `loop/ai/model_gateway.py` | `test_capability_runners.py::test_lg01_agent_pack_uses_create_agent_and_persists_validated_evidence` | verified |
+| LG02 | Add two unrelated agent/workflow packs | Both run without coordinator, channel or core schema edits | WP5 | `loop/agents/coordinator.py`, `loop/capabilities/runners.py` | `test_capability_runners.py::test_lg02_unrelated_agent_and_workflow_packs_use_the_same_core` | verified |
 | LG03 | Private context and local model failure | No cloud call, including child, summary and repair paths | WP2 | `loop/ai/model_gateway.py` | `test_model_gateway.py::test_lg03_*` | verified |
 | LG04 | Model requests undeclared tool or forged authority | Wrapper refuses; no effect and no authority escalation | C2 | `loop/runtime/authority.py` | `test_planner_authority.py::test_lg04_*` | verified |
 | LG05 | Parallel children and schema repairs reach budget limit | One shared budget enforces the cap without multiplied retries | WP2 | `loop/ai/budget.py` | `test_model_gateway.py::test_lg05_*` | verified |
