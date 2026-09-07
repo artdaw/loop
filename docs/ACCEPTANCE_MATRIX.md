@@ -16,7 +16,7 @@ A green test count is not coverage: a row is `verified` only when its named test
 
 | Stage | Section | Scenarios | verified | implemented | pending |
 |---|---|---:|---:|---:|---:|
-| A | 2. Commitments and everyday interaction | 15 | 13 | 2 | 0 |
+| A | 2. Commitments and everyday interaction | 15 | 15 | 0 | 0 |
 | A | 3. Time, durability and delivery | 17 | 16 | 1 | 0 |
 | B | 4. Knowledge and vault fidelity | 32 | 32 | 0 | 0 |
 | C | 5. Team coordination, privacy and control | 23 | 21 | 2 | 0 |
@@ -26,7 +26,7 @@ A green test count is not coverage: a row is `verified` only when its named test
 | C | 9. Capability extensibility | 14 | 13 | 1 | 0 |
 | E | 10. Build, migration, operations and release | 14 | 9 | 5 | 0 |
 | C/E | 11. Standard agent stack | 12 | 12 | 0 | 0 |
-| — | **Total** | **196** | **175** | **21** | **0** |
+| — | **Total** | **196** | **177** | **19** | **0** |
 
 
 ## 2. Commitments and everyday interaction
@@ -43,8 +43,8 @@ Stage **A** · planned milestones **A3–A4, A7**
 | T06 | “Remember to call” versus “remember that production takes six weeks” | First is task intent; second is exact knowledge capture; unresolved reminder time sta… | E9 | `loop/services/messages.py + loop/runtime/interpret.py` | `test_remaining.py::test_t06_*`, `test_messages_e2e.py::test_remember_to_is_a_task_and_remember_that_is_knowledge` | verified |
 | T07 | “Remember this fact and remind me Friday at 10 to verify it” on a non-Friday | Separate capture and linked task; each has its own truthful result | E9 | `loop/services/messages.py + loop/runtime/interpret.py` | `test_remaining.py::test_t07_*`, `test_messages_e2e.py::test_a_fact_and_a_reminder_each_get_their_own_truthful_result` | verified |
 | T08 | Complete a task before its reminder sends | Task done and pending firing/notification cancelled atomically; outbox preflight prev… | A7 | `loop/services/reminders.py + loop/runtime/outbox.py` | `test_stage_a_e2e.py::test_t08_*`, `test_outbox.py::test_t08_*`, `test_release_e2e.py::test_completion_*` | verified |
-| T09 | Snooze a delivered reminder by 1 hour, replay button | One replacement occurrence at requested time; one feedback record; task remains open | A9 | `loop/runtime/triggers.py` | `test_stage_a_e2e.py::test_t09_*` | implemented |
-| T10 | Dismiss a reminder | Notification suppressed, task not completed | A9 | `loop/runtime/outbox.py` | `test_stage_a_e2e.py::test_t10_*` | implemented |
+| T09 | Snooze a delivered reminder by 1 hour, replay button | One replacement occurrence at requested time; one feedback record; task remains open | A9 | `loop/services/actions.py + loop/interfaces/telegram.py` | `test_stage_a_e2e.py::test_t09_*`, `test_callback_actions_e2e.py::test_snoozing_creates_one_replacement_occurrence`, `test_callback_actions_e2e.py::test_pressing_snooze_twice_produces_one_effect` | verified |
+| T10 | Dismiss a reminder | Notification suppressed, task not completed | A9 | `loop/services/actions.py + loop/runtime/outbox.py` | `test_stage_a_e2e.py::test_t10_*`, `test_callback_actions_e2e.py::test_dismissing_suppresses_the_message_without_completing_the_task` | verified |
 | T11 | Reopen completed task | Explicit versioned ready state; old reminders do not reactivate implicitly | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t11_*` | verified |
 | T12 | Extract a meeting action owned by another attendee | Remains that attendee's action; never silently assigned to owner or messaged external… | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t12_*` | verified |
 | T13 | Unsupported execution request, e.g. booking through unavailable adapter | Task preserved; missing capability and next step visible; no success claim | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t13_*` | verified |

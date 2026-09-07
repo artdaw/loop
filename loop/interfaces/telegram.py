@@ -38,6 +38,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 from telegram import Bot, Update
 from telegram.error import TelegramError
@@ -50,6 +51,7 @@ from loop.core.privacy import PrivacyLabel
 from loop.runtime.authority import AuthorityContext
 from loop.runtime.intake import InboundMessage
 from loop.runtime.routine_dispatch import ROUTINE_SUBJECT, next_local_fire
+from loop.services.actions import ActionKind, ActionRefused
 from loop.services.feedback import summarise
 
 #: interfaces §2: "default 1 hour if omitted".
@@ -124,6 +126,10 @@ class LoopTelegramBot:
     # One update
     # ------------------------------------------------------------------ #
     async def _handle_update(self, update: Update) -> None:
+        if update.callback_query is not None:
+            await self._handle_callback(update)
+            return
+
         message = update.message
         if message is None or message.text is None:
             return
@@ -153,6 +159,95 @@ class LoopTelegramBot:
         reply = await self._dispatch(message.text)
         if reply:
             await self._reply(chat.id, reply)
+
+    async def _handle_callback(self, update: Update) -> None:
+        """A button press: authenticated, validated, then acted on (T09, T10).
+
+        The callback is acknowledged *after* the effect, not before.
+        Acknowledgement is what stops Telegram's spinner; sending it first
+        would tell the owner the action happened while it may still fail
+        (interfaces §2: "callback acknowledgement is not execution success").
+        """
+        query = update.callback_query
+        if query is None or query.data is None:
+            return
+        user = update.effective_user
+        chat = update.effective_chat
+        if user is None or chat is None:
+            return
+
+        # The same identity check text goes through. A callback is an inbound
+        # delivery like any other and must not bypass pairing.
+        inbound = InboundMessage(
+            origin="telegram", origin_id=f"callback:{query.id}",
+            idempotency_key=f"telegram:callback:{query.id}",
+            kind="callback.received", payload={"data": query.data},
+            actor_chat_id=str(chat.id), actor_user_id=str(user.id))
+        try:
+            accepted = self.application.intake.accept(inbound)
+        except AuthRequired:
+            logger.warning("Rejected Telegram callback from chat=%s user=%s",
+                           chat.id, user.id)
+            return
+        if not accepted.created:
+            return                      # a redelivered press
+
+        try:
+            reply = self._perform(query.data, actor=str(user.id))
+        except ActionRefused as exc:
+            reply = str(exc)
+        except LoopError as exc:
+            reply = f"error: {exc.message}"
+
+        await self._answer_callback(query.id, reply)
+        await self._reply(chat.id, reply)
+
+    def _perform(self, action_id: str, *, actor: str) -> str:
+        """Claim the button, then do exactly what it says — and no more."""
+        application = self.application
+        action = application.actions.claim(action_id, actor=actor)
+
+        if action.kind is ActionKind.DONE:
+            task = application.tasks.get(action.task_id)
+            if task is None:
+                return "That task no longer exists."
+            application.reminders.complete(action.task_id,
+                                           expected_version=task.version)
+            return f"Done: {task.title}"
+
+        if action.kind is ActionKind.SNOOZE:
+            later = application.clock.now() + dt.timedelta(
+                minutes=DEFAULT_SNOOZE_MINUTES)
+            # A *delivered* reminder cannot be un-sent, so snoozing it means a
+            # replacement occurrence rather than moving a queued row (T09).
+            # Any message still waiting is moved too, so a press that beats
+            # delivery does not produce both a send and a replacement.
+            application.outbox.defer_for_subject(action.subject_ref,
+                                                 until=to_micros(later))
+            application.reminders.attach(
+                action.task_id, instant=later,
+                timezone=application.settings.timezone,
+                original_local=f"snoozed {DEFAULT_SNOOZE_MINUTES}m")
+            application.feedback.record_snooze(
+                action.subject_ref, event_id=f"callback:{action_id}",
+                shift_minutes=DEFAULT_SNOOZE_MINUTES)
+            local = later.astimezone(ZoneInfo(application.settings.timezone))
+            return (f"Snoozed until {local:%H:%M}. The task stays open.")
+
+        # Dismiss suppresses the notification. It is emphatically *not* a
+        # completion: the errand is still outstanding, and marking it done
+        # because the owner cleared a message would lose it silently (T10).
+        cancelled = application.outbox.cancel_for_subject(action.subject_ref)
+        return (f"Dismissed ({cancelled} message(s)). The task is still open.")
+
+    async def _answer_callback(self, query_id: str, text: str) -> None:
+        answer = getattr(self.bot, "answer_callback_query", None)
+        if answer is None:
+            return
+        try:
+            await answer(callback_query_id=query_id, text=text[:200])
+        except TelegramError:
+            logger.exception("Failed to acknowledge a Telegram callback")
 
     async def _dispatch(self, text: str) -> str:
         parts = text.strip().split(maxsplit=1)

@@ -79,6 +79,7 @@ from loop.runtime.trip_monitor import (
     TripCheckDispatcher,
     TripMonitorScheduler,
 )
+from loop.services.actions import CallbackActions
 from loop.services.export_map import ExportMap
 from loop.services.feedback import (
     FeedbackLog,
@@ -125,6 +126,7 @@ class Application:
     trip_monitor: TripMonitorScheduler
     feedback: FeedbackService
     messages: MessageService
+    actions: CallbackActions
     registry: CapabilityRegistry
     artifacts: ArtifactStore
     invoker: CapabilityInvoker
@@ -254,6 +256,10 @@ def build_application(settings: Settings | None = None, *,
         notifications=notifications, clock=clock,
         default_destination=settings.telegram_chat_id)
 
+    # Buttons on a delivered reminder carry opaque ids; everything they need
+    # is looked up here rather than encoded in the callback (interfaces §2).
+    actions = CallbackActions(sessions=sessions, clock=clock)
+
     # Free text reaches the same services an explicit command does, so
     # "remind me tomorrow at 9" and `task add` cannot disagree about what a
     # task is (T04-T07).
@@ -278,7 +284,9 @@ def build_application(settings: Settings | None = None, *,
                                         clock=clock)
     dispatchers = CompositeTriggerDispatcher([
         TaskReminderDispatcher(tasks=tasks, outbox=outbox,
-                               destination_id=settings.telegram_chat_id),
+                               destination_id=settings.telegram_chat_id,
+                               actions=actions,
+                               owner=str(settings.telegram_user_id)),
         routine_dispatcher,
         TripCheckDispatcher(jobs=jobs, scheduler=trip_monitor)])
 
@@ -305,6 +313,7 @@ def build_application(settings: Settings | None = None, *,
         vault_search=vault_search, knowledge=knowledge,
         routine_scheduler=routine_scheduler, routine_worker=routine_worker,
         trip_monitor=trip_monitor, feedback=feedback, messages=messages,
+        actions=actions,
         registry=registry, artifacts=artifacts,
         invoker=invoker, roles=roles, operations=operations, runs=runs,
         coordinator=coordinator, service=service,
