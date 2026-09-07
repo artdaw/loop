@@ -256,8 +256,10 @@ def test_a_restarted_application_produces_sourced_compared_advice(
     assert outcome is not None
     assert outcome.state == "succeeded"
     assert outcome.decision == Decision.SEND.value
-    # Three independent Open-Meteo models were actually fetched and compared.
-    assert len({url for url, _ in second_transport.calls}) == 3
+    # Three independent Open-Meteo models were fetched and compared, plus the
+    # current-conditions block, which is a different product on the same path.
+    hourly = {url for url, params in second_transport.calls if "hourly" in params}
+    assert len(hourly) == 3
     assert "precipitation_probability" in outcome.message
     assert any("waterproof" in line or "umbrella" in line
                for line in outcome.message.splitlines())
@@ -275,9 +277,15 @@ def test_only_coordinates_fields_and_a_window_leave_the_process(
     app.routine_worker.run_one()
 
     assert weather_transport.calls
+    # Two request shapes now: the hourly models and the current-conditions
+    # block. Both must carry coordinates, the fields wanted and a time
+    # reference — and nothing else.
+    allowed = {"latitude", "longitude", "hourly", "current", "timezone",
+               "start_hour", "end_hour"}
     for _url, params in weather_transport.calls:
-        assert set(params) == {"latitude", "longitude", "hourly", "timezone",
-                               "start_hour", "end_hour"}
+        assert set(params) <= allowed, set(params) - allowed
+        assert {"latitude", "longitude", "timezone"} <= set(params)
+        assert "hourly" in params or "current" in params
 
 
 def test_the_advice_reaches_the_outbox_and_is_delivered_once(
@@ -867,3 +875,65 @@ def test_a_routine_the_owner_timed_themselves_is_delivered_in_quiet_hours(
     assert "explicit authority" in outcome.reason
     assert app.service.tick().notifications_sent == 1
     assert len(sends.sent) == 1
+
+
+# --------------------------------------------------------------------------- #
+# WF09 — present conditions are not a forecast
+# --------------------------------------------------------------------------- #
+CURRENT_ONLY = {
+    "latitude": 52.52, "longitude": 13.41, "elevation": 38.0,
+    "timezone": "GMT",
+    "current_units": {"time": "iso8601", "temperature_2m": "°C",
+                      "wind_speed_10m": "km/h", "precipitation": "mm"},
+    "current": {"time": "2026-09-06T07:00", "temperature_2m": 11.5,
+                "wind_speed_10m": 6.0, "precipitation": 0.0},
+}
+
+
+class ObservationOnlyTransport(HttpTransport):
+    """The `current` block answers; every hourly model is unavailable.
+
+    The scenario WF09 names: fresh observations, and nothing covering later.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[str] = []
+
+    def get(self, url: str, *, params=None) -> HttpResponse:
+        self.calls.append(url)
+        if params and "current" in params:
+            return HttpResponse(200, json.dumps(CURRENT_ONLY).encode("utf-8"))
+        return HttpResponse(503, b"")
+
+
+def test_present_conditions_are_labelled_and_the_missing_future_is_visible(
+        settings, clock, sends):
+    """A measurement and a forecast read identically once rendered as "11 C"."""
+    from loop.capabilities.weather.adapters.open_meteo import build_adapters
+
+    transport = ObservationOnlyTransport()
+    service = WeatherService(adapters=build_adapters(transport=transport),
+                             locations={"home": BERLIN})
+    app = build_application(settings, clock=clock, weather=service,
+                            transports={"telegram": sends})
+    activate_morning_weather(app)
+    clock.set(FIRES_AT)
+    app.service.tick()
+
+    outcome = app.routine_worker.run_one()
+
+    assert "present conditions, measured now" in outcome.message
+    assert "nothing here describes later" in outcome.message
+    # And it does not read as a calm outlook just because nothing reported rain.
+    assert "no rain" not in outcome.message.lower()
+
+
+def test_an_observation_never_answers_for_the_forecast_window(settings, clock):
+    """`covers_horizon` must keep an observation out of a 3-hour question."""
+    from loop.capabilities.weather.adapters.open_meteo import current_descriptor
+
+    descriptor = current_descriptor()
+
+    assert descriptor.covers_horizon(0) is True
+    assert descriptor.covers_horizon(3) is False

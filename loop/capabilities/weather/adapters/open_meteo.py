@@ -273,10 +273,131 @@ def _parse_utc(stamp: Any) -> int | None:
 
 
 def build_adapters(*, transport: HttpTransport | None = None,
-                   model_ids: list[str] | None = None) -> list[OpenMeteoAdapter]:
-    """Construct adapters for the configured models."""
+                   model_ids: list[str] | None = None,
+                   include_current: bool = True) -> list[Any]:
+    """Construct adapters for the configured models.
+
+    `include_current` adds the observation adapter, so a bundle can say what
+    the weather *is* and not only what a model expects it to be (WF09).
+    """
     shared = transport or HttpTransport()
     wanted = set(model_ids) if model_ids else None
-    return [OpenMeteoAdapter(model, transport=shared)
-            for model in OPEN_METEO_MODELS
-            if wanted is None or model.source_id in wanted]
+    adapters: list[Any] = [
+        OpenMeteoAdapter(model, transport=shared)
+        for model in OPEN_METEO_MODELS
+        if wanted is None or model.source_id in wanted]
+    if include_current and (wanted is None or "open_meteo_current" in wanted):
+        adapters.append(OpenMeteoCurrentAdapter(transport=shared))
+    return adapters
+
+
+#: Open-Meteo's `current` block: present conditions, not a forecast. Distinct
+#: fields from the hourly ones, because "what it is doing now" and "what the
+#: model expects at 15:00" are different measurements with different meanings
+#: (WF09) — and only one of them can answer "is it raining?".
+CURRENT_FIELDS = {
+    "temperature": ("temperature_2m", Statistic.INSTANT),
+    "feels_like": ("apparent_temperature", Statistic.INSTANT),
+    "wind_speed": ("wind_speed_10m", Statistic.INSTANT),
+    "wind_gust": ("wind_gusts_10m", Statistic.INSTANT),
+    "precipitation_amount": ("precipitation", Statistic.SUM),
+}
+
+#: An observation describes now. Ten minutes old is current; an hour is not.
+CURRENT_MAX_AGE_SECONDS = 600
+
+
+def current_descriptor() -> SourceDescriptor:
+    return SourceDescriptor(
+        id="open_meteo_current", publisher="Open-Meteo",
+        transport_provider="Open-Meteo",
+        # An OBSERVATION, so `covers_horizon` reports it cannot answer for the
+        # future at all rather than being treated as a very short forecast.
+        product_type=ProductType.OBSERVATION,
+        authority=Authority.QUALIFIED_OTHER,
+        product="current conditions",
+        coverage=Coverage(jurisdiction="", bbox=None,
+                          spatial_resolution_km=11.0),
+        supported_variables=frozenset(CURRENT_FIELDS),
+        # Documentation rather than behaviour: `covers_horizon`
+        # decides from the *product type* for observations, so this
+        # number is never consulted. Stated as zero anyway, because
+        # a reader should not have to check which one wins.
+        supported_horizon_hours=0,
+        model_family="", model_run_id="", lineage_ids=("open-meteo-current",),
+        update_interval_seconds=900,
+        max_issue_age_seconds=CURRENT_MAX_AGE_SECONDS,
+        attribution="Open-Meteo current conditions")
+
+
+class OpenMeteoCurrentAdapter:
+    """Present conditions from Open-Meteo's `current` block.
+
+    Deliberately a separate adapter rather than an extra field on the forecast
+    one. Its product type, freshness rule and horizon are all different, and
+    merging them would let a ten-minute-old reading and a three-hour-old model
+    run be compared as though they meant the same thing.
+    """
+
+    def __init__(self, *, transport: HttpTransport | None = None,
+                 base_url: str = BASE_URL) -> None:
+        self._transport = transport or HttpTransport()
+        self._base_url = base_url
+
+    @property
+    def descriptor(self) -> SourceDescriptor:
+        return current_descriptor()
+
+    def fetch(self, *, latitude: float, longitude: float, start: int, end: int,
+              variables: list[str], now: int) -> list[WeatherSample]:
+        del start, end          # an observation has no window but "now"
+        requested = [name for name in variables if name in CURRENT_FIELDS]
+        if not requested:
+            return []
+
+        fields = sorted({CURRENT_FIELDS[name][0] for name in requested})
+        response = self._transport.get(f"{self._base_url}/forecast", params={
+            "latitude": f"{latitude:.4f}", "longitude": f"{longitude:.4f}",
+            "current": ",".join(fields), "timezone": "UTC"})
+        if response.status_code != 200:
+            raise AdapterError("open_meteo_current",
+                               f"HTTP {response.status_code} from Open-Meteo")
+        try:
+            payload = response.json()
+        except Exception as exc:                       # noqa: BLE001 — reported
+            raise AdapterError("open_meteo_current",
+                               f"unreadable response: {exc}") from exc
+        return self.parse(payload, requested=requested, now=now)
+
+    def parse(self, payload: Any, *, requested: list[str],
+              now: int) -> list[WeatherSample]:
+        if not isinstance(payload, dict):
+            raise AdapterError("open_meteo_current",
+                               "response was not a JSON object")
+        current = payload.get("current")
+        units = payload.get("current_units") or {}
+        if not isinstance(current, dict):
+            raise AdapterError("open_meteo_current",
+                               "response contained no current conditions")
+
+        observed = _parse_utc(current.get("time"))
+        samples: list[WeatherSample] = []
+        for variable in requested:
+            field_name, statistic = CURRENT_FIELDS[variable]
+            value = current.get(field_name)
+            unit = UNIT_ALIASES.get(str(units.get(field_name, "")),
+                                    _default_unit(variable))
+            samples.append(WeatherSample(
+                source_id="open_meteo_current", variable=variable,
+                value=None if value is None else float(value),
+                unit=unit, statistic=statistic,
+                # An observation's window is the moment it describes, not a
+                # span: giving it an hour would let it answer for a future it
+                # says nothing about.
+                valid_from=observed or now, valid_to=observed or now,
+                fetched_at=now, product_type=ProductType.OBSERVATION.value,
+                observed_at=observed, interval_seconds=0,
+                lineage_ids=("open-meteo-current",),
+                missing_reason="" if value is not None else "not reported",
+                original_unit=str(units.get(field_name, ""))))
+        return samples

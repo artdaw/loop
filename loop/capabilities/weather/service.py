@@ -29,6 +29,7 @@ from loop.capabilities.weather.bundle import (
 from loop.capabilities.weather.sources import (
     MAX_FORECAST_PRODUCTS,
     MAX_PROVIDER_REQUESTS,
+    ProductType,
     SourceCatalogue,
     select_sources,
 )
@@ -94,6 +95,33 @@ class WeatherService:
             elevation_m=location.get("elevation_m"),
             preferred_ids=self.preferred_ids,
             max_products=MAX_FORECAST_PRODUCTS)
+
+        # Present conditions are selected separately, at horizon zero. An
+        # observation cannot answer a three-hour question and is rightly
+        # excluded above — but every briefing also implicitly asks what it is
+        # doing *now*, and weather §3 ranks nearby observations alongside
+        # forecasts rather than instead of them. Selecting only one tier is
+        # what makes a 503 from every model read as "no data" while a perfectly
+        # good measurement sits unused (WF09).
+        present, _present_skipped = select_sources(
+            self.catalogue, latitude=latitude, longitude=longitude,
+            variable=request.fields[0], horizon_hours=0.0,
+            elevation_m=location.get("elevation_m"),
+            preferred_ids=self.preferred_ids,
+            max_products=MAX_FORECAST_PRODUCTS)
+        # Only present-conditions products may join through this second pass.
+        # Redundant for the shipped catalogue — a forecast that survives the
+        # zero-horizon check is already in `selected` and deduped below — and
+        # kept because the pass exists to add *observations*: a forecast
+        # arriving here would be one the horizon selection had already
+        # rejected, slipping back in through a door meant for something else.
+        chosen = {descriptor.id for descriptor in selected}
+        selected = list(selected) + [
+            descriptor for descriptor in present
+            if descriptor.id not in chosen
+            and descriptor.product_type in (ProductType.OBSERVATION,
+                                            ProductType.NOWCAST,
+                                            ProductType.RADAR)]
 
         budget = FetchBudget(max_requests=max_requests)
         samples = []

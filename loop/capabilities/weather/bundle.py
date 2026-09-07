@@ -42,6 +42,7 @@ from loop.capabilities.weather.normalize import (
 )
 from loop.capabilities.weather.sources import (
     MAX_PROVIDER_REQUESTS,
+    ProductType,
     SelectionFinding,
     SourceCatalogue,
     SourceDescriptor,
@@ -428,6 +429,7 @@ def render_brief(bundle: WeatherBundle) -> WeatherBrief:
         brief.forecast_summary.append(line)
         brief.uncertainty.extend(comparison.notes)
 
+    _note_present_versus_future(bundle, brief)
     _add_preparation(bundle, brief)
 
     if bundle.warning_state is WarningState.ACTIVE:
@@ -460,6 +462,28 @@ def render_brief(bundle: WeatherBundle) -> WeatherBrief:
     brief.headline = brief.forecast_summary[0] if brief.forecast_summary else \
         "No requested fields were covered."
     return brief
+
+
+def _note_present_versus_future(bundle: WeatherBundle,
+                                brief: WeatherBrief) -> None:
+    """Say plainly when the reading describes now rather than later (WF09).
+
+    An observation and a forecast read identically once rendered — "12 C" says
+    nothing about whether it is a measurement or an expectation. When the only
+    thing covering a field is an observation, the requested window is *not*
+    covered, and presenting it without saying so answers "will it rain later?"
+    with what the sky is doing at this moment.
+    """
+    products = set(bundle.coverage_by_product)
+    if ProductType.OBSERVATION.value not in products:
+        return
+
+    brief.uncertainty.append(
+        "These are present conditions, measured now.")
+    if ProductType.FORECAST.value not in products:
+        brief.uncertainty.append(
+            "No forecast covered the requested window, so nothing here "
+            "describes later — this is not a quiet outlook.")
 
 
 def _add_preparation(bundle: WeatherBundle, brief: WeatherBrief) -> None:

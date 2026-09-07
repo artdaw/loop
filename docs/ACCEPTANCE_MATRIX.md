@@ -22,11 +22,11 @@ A green test count is not coverage: a row is `verified` only when its named test
 | C | 5. Team coordination, privacy and control | 23 | 21 | 2 | 0 |
 | D | 6. Proactivity and learning | 21 | 18 | 3 | 0 |
 | E | 7. Travel itinerary capability | 24 | 19 | 5 | 0 |
-| D | 8. Weather from multiple sources | 24 | 23 | 1 | 0 |
+| D | 8. Weather from multiple sources | 24 | 24 | 0 | 0 |
 | C | 9. Capability extensibility | 14 | 13 | 1 | 0 |
 | E | 10. Build, migration, operations and release | 14 | 9 | 5 | 0 |
 | C/E | 11. Standard agent stack | 12 | 12 | 0 | 0 |
-| — | **Total** | **196** | **178** | **18** | **0** |
+| — | **Total** | **196** | **179** | **17** | **0** |
 
 
 ## 2. Commitments and everyday interaction
@@ -217,7 +217,7 @@ Stage **D** · planned milestones **D5–D6**
 | WF06 | Three-hour probability versus hourly probability or amount | Incompatible statistics kept separate; no averaging, division or false equivalence | D5–D6 | `loop/capabilities/weather/normalize.py` | `test_weather.py::test_wf06_*` | verified |
 | WF07 | Kelvin/Fahrenheit, m/s, interval-ending rain sums, missing feels-like | Deterministic unit/time normalization; missing/derived values explicit | D5–D6 | `loop/capabilities/weather/normalize.py` | `test_weather.py::test_wf07_*` | verified |
 | WF08 | Fetch repeats an unchanged old model run | issued_at/age preserved; stale product cannot become fresh through cache refresh | D5–D6 | `loop/capabilities/weather/normalize.py` | `test_weather.py::test_wf08_*` | verified |
-| WF09 | Fresh observations but no forecast beyond nowcast horizon | Present conditions distinguished from future forecast; missing future coverage visible | D5–D6 | `loop/capabilities/weather/sources.py`, `loop/capabilities/weather/compare.py` | `test_weather.py::test_wf09_*` | implemented |
+| WF09 | Fresh observations but no forecast beyond nowcast horizon | Present conditions distinguished from future forecast; missing future coverage visible | D5–D6 | `loop/capabilities/weather/adapters/open_meteo.py + bundle.py + service.py` | `test_weather.py::test_wf09_*`, `test_routine_weather_e2e.py::test_present_conditions_are_labelled_and_the_missing_future_is_visible` | verified |
 | WF10 | Nearby station has wrong elevation/terrain or foreign destination | Suitability beats simple proximity; destination/jurisdiction sources selected correct… | D5–D6 | `loop/capabilities/weather/sources.py` | `test_weather.py::test_wf10_*` | verified |
 | WF11 | Official applicable warning with otherwise mild forecasts | Warning retained with source, area, effective time and instructions; not averaged away | D5–D6 | `loop/capabilities/weather/warnings.py` | `test_weather.py::test_wf11_*` | verified |
 | WF12 | Warning feed is missing, stale, partial or unavailable | Unknown warning state; no all-clear or cancellation inferred | D5–D6 | `loop/capabilities/weather/warnings.py` | `test_weather.py::test_wf12_*` | verified |
