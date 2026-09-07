@@ -87,7 +87,7 @@ that does not negate the existing component tests.
 | M4 | Assemble shared application services and wire shipped CLI, HTTP and Telegram; ship validated packs and capability management | Installed command, API and bot handler traverse the same real services; two unrelated packs work without coordinator/channel/schema edits | **done 2026-09-07** |
 | M5 | Connect complete the vault and weather workflows | Natural-language capture → exact raw/ledger → sourced wiki → cited answer; activated routine → weather comparison → advice → outbox after restart | **done 2026-09-07** |
 | M6 | Complete travel research/monitoring, warning adapters, learning and remaining contract interfaces | Real adapter implementations with recorded/fake transports; scoped monitoring; durable preference feedback; unavailable sources explicitly reported | **done 2026-09-07** |
-| M7 | Re-audit all acceptance scenarios and release operation | Installed-package, Docker, real process restart and paired backup/restore checks; reproducible demos; no mandatory behavior falsely marked complete | pending |
+| M7 | Re-audit all acceptance scenarios and release operation | Installed-package, Docker, real process restart and paired backup/restore checks; reproducible demos; no mandatory behavior falsely marked complete | **done 2026-09-07** — Docker skipped, see below |
 
 Preserve legacy interfaces until their replacements have matching behavior. The CLI
 currently points to cli.main:main; changing imports in a test does not connect the shipped
@@ -159,40 +159,23 @@ even if its old named test is green. Keep all 196 IDs from the acceptance append
 
 ### Current continuation checkpoint
 
-- State: **M0, M1, M2, M3, M4, M5, M6 done.**
-- Next action: M7 — re-audit all 196 acceptance scenarios against the actual
-  application path, then the release checks (installed package, Docker, real
-  process restart, paired backup/restore, reproducible demos).
-- Fresh checks this session: 1,973 passed / 16 skipped, in both declared and
-  randomised order; Ruff clean; mypy clean for 215 source files (repo-wide, tests
-  included). Re-run, not inherited. `tests/test_review.py`'s date-boundary flake did
-  not reproduce today; it remains a latent legacy-code date dependency, unfixed
-  because it is outside every current milestone's scope.
-- `mypy .` fails in a checkout that still holds a `build/` directory from a
-  packaging build: the stale `build/lib/` copy of the tree makes every module a
-  duplicate. Delete `build/` (done this session) or pass `--exclude '^build/'`.
-  Not a code problem, but worth knowing before reading the error.
-- Known unverified release checks: fresh packaging/Docker and paired backup/restore.
-- Known gaps left honestly open, by name:
-  - **Travel**: no fare, availability or transport-schedule provider is shipped.
-    Every source worth trusting needs an account, and travel §4 requires
-    configured account and budget authority before an adapter that incurs
-    charges may run. `TravelResearch.unavailable()` names all three on every
-    pass, so a missing price is visibly a missing *provider*.
-  - **Telegram**: `/remind`, `/travel`, `/trips`, `/trip`, `/briefing`,
-    `/routine <description>`, `/cancel`, voice notes and inline buttons are not
-    wired. `/help` names them as unavailable rather than omitting them.
-  - **HTTP**: messages, reminders, search, research, weather, trips, approvals,
-    feedback, memory, activity, why and policy routes are still absent.
-  - **Trip check execution**: monitoring now *schedules* and queues scoped
-    `trip.check` jobs, but no worker executes one yet — there is no fare or
-    schedule provider for it to re-check against (see Travel above). The
-    change-detection logic it would call (`compare_transport`, `compare_cost`,
-    `NoticeLedger`) is complete and unit-tested.
-  `loop`'s pyproject entry point still points at the legacy `cli.main:main`;
-  `loop-next`/`loop-next-api`/`loop-next-telegram` are the new stack, kept as
-  separate entry points per the brief's own instruction to preserve legacy
-  interfaces until their replacements have matching behaviour.
+- State: **M0–M7 done**, with the Docker checks explicitly unverified on this
+  machine (see below). All seven milestones have dated evidence rows.
+- Next action: nothing is blocked. The remaining work is the named gaps below,
+  none of which is a milestone exit criterion: no fare/availability/schedule
+  provider, no trip-check worker, no observation/nowcast adapter, the unwired
+  `observations.py` condition path, and the remaining HTTP/Telegram routes.
+- Fresh checks this session: `scripts/acceptance_run.sh` passes end to end —
+  lint, types, 1,981 passed / 17 skipped, matrix totals, matrix audit,
+  packaging and wheel, restart durability, and a 30-check demo through the
+  installed `loop-next`. Re-run, not inherited.
+- **Docker: skipped, not verified.** The six image checks in
+  `tests/vnext/test_packaging.py` skip because the daemon is not running on
+  this machine. They are not claimed as passing. To run them:
+  `open -a Docker && LOOP_PACKAGING_TESTS=1 .venv/bin/python -m pytest
+  tests/vnext/test_packaging.py -k o03`.
+- The acceptance matrix now reads **165 verified / 31 implemented**, not the
+  inherited 196/196. That difference is the re-audit's actual finding.
 - Decisions: approved review governs readiness; Edward is presentation advice only.
 
 #### Note: a pre-existing, unrelated test flake observed this session
@@ -202,6 +185,76 @@ system date advanced past a week boundary; the module computes its window from
 `date.today()`. Confirmed via `git diff` that neither file was touched this session. Not
 fixed, since it is outside every current milestone's scope and is a legacy-code date
 dependency, not a regression.
+
+#### M7: the re-audit, and what it actually found
+
+The matrix arrived claiming 196/196 verified. The brief is explicit that those
+labels are inherited and that *"a green test count is not coverage"*, so the
+question was never whether the suite passes — it does — but whether each row's
+evidence supports its own required result.
+
+**`scripts/audit_acceptance.py` makes two thirds of that checkable, and runs
+in the release gate.** Not a one-off audit whose conclusion decays the moment
+someone renames a test:
+
+1. *Does the named test exist and get collected?* Asked of pytest itself,
+   never inferred from names. Several rows pointed at tests that had been
+   renamed or never written; those are now re-pointed or downgraded.
+2. *Does it run at the level the required result demands?* A row whose result
+   needs a restart, a delivered message or a shipped command cannot rest on a
+   unit test (plan §4).
+
+The third — whether a test at the right level asserts the required *substance*
+— stays a reading task. The script narrows what must be read; it does not
+pretend to replace it, and says so.
+
+**The negation rule is what made the second check usable.** Many required
+results mention delivery only to forbid it: "never silently assigned to owner
+or messaged externally", "no send without that scope's authority". A component
+test proving nothing was sent is exactly right for those. Counting them as
+shortfalls flagged 13 rows, mostly noise; discounting a negated demand left 3
+real ones. A checker that cries wolf is one nobody runs.
+
+**Result: 165 verified, 31 implemented.** Rows re-pointed to evidence that now
+exists at the right level: T02 (Telegram redelivery), D04 (a separate OS
+process completes queued work), D06, D11, P07, TR14, WF20, WF21, EX02 (two
+packs invoked through unchanged CLI and bot handlers). Rows downgraded with
+their reason recorded in the matrix: T15 (no HTTP surface exposes intake's
+idempotency conflict, so "HTTP 409" is not provable), P05 (`observations.py`
+is not wired into the application, so nothing activates a condition routine),
+WF09 (no observation or nowcast adapter ships, so "fresh observations but no
+forecast" cannot be exercised end to end).
+
+**Two real gaps the audit exposed, now closed by tests:** an uncertain send is
+never blindly resent (D06) and a reminder the owner timed themselves is
+delivered during quiet hours (P07) — the complement of the discretionary
+quiet-hours case. Both mutation-verified.
+
+**A defect in the image.** The container's default command was `loop`, the
+legacy CLI, which has no `run daemon` subcommand at all — so the entry point
+could not have started. It is now `loop-next`, whose daemon sweeps, drains
+routine and coordinator jobs, handles SIGTERM and releases the leader lease.
+The packaging test caught this; nothing else would have, because no test ran
+the image's own command.
+
+**`scripts/demo.sh` — the reproducible demo.** Thirty checks driving the
+installed `loop-next` against a throwaway vault and database: status with
+nothing configured, a task, exact capture with its pipe and trailing
+whitespace intact, an uncompiled answer labelled as such, a knowledge gap
+stated rather than filled, two packs discovered and enabled, a routine that is
+saved without being activated and scheduled only on explicit authority,
+learning that proposes below-threshold and refuses to double-count an event,
+a deterministic sweep, and a backup whose manifest is checked for the vault
+before a verify-only restore that leaves its target untouched.
+
+It runs inside `acceptance_run.sh`, so it fails when a shipped command drifts
+from what the walkthrough claims — which a transcript in a document cannot do.
+Steps needing a network or an account are *named and skipped* rather than
+omitted, because an unconfigured provider is a fact about the machine, not a
+gap in the demo.
+
+**Docker is skipped, not verified.** The six image checks need a running
+daemon and this machine has none. They are not counted as passing anywhere.
 
 #### M6: warning adapters, travel research, and the learning loop closed
 
@@ -868,6 +921,7 @@ Confirmed still open at M0, by inspection of the actual source:
 
 | Date | Milestone / acceptance IDs | Files and commands | Result and evidence level | Remaining / next |
 |---|---|---|---|---|
+| 2026-09-07 | M7: acceptance re-audit and release operation | `scripts/audit_acceptance.py` (new), `scripts/demo.sh` (new), `scripts/acceptance_run.sh` (audit + demo added to the gate), `Dockerfile` (entry point), `docs/ACCEPTANCE_MATRIX.md` (statuses and test references); `tests/vnext/test_routine_weather_e2e.py` (+2, mutation-verified) | `scripts/acceptance_run.sh` green end to end: lint, types, 1,981 passed / 17 skipped, matrix totals, matrix audit, packaging + wheel, restart durability, 30-check installed-command demo. Matrix re-audited from an inherited 196/196 to **165 verified / 31 implemented**. **Docker: 6 image checks skipped, daemon not running — not verified.** | Named gaps only; no milestone criterion outstanding |
 | 2026-09-07 | M6 part 5: scoped trip monitoring | `loop/runtime/trip_monitor.py` (new: `TripMonitorScheduler`, `TripCheckDispatcher`, `CompositeTriggerDispatcher`), `loop/app.py`; `tests/vnext/test_trip_monitor_e2e.py` (18 tests); 12 mutations run, 11 killed, 1 documented redundancy; 1 real defect found (per-trip dedupe key collapsing every checkpoint into one job) | 1,973 passed / 16 skipped in declared **and** randomised order; Ruff + mypy clean (215 files). Checkpoints become durable one-shot triggers carrying the approved check scope; cancellation stops both the checks and the notices. | M7 |
 | 2026-09-07 | M6 part 4: remaining interfaces | `loop/interfaces/telegram.py` (12 new commands, honest `/help`), `loop/runtime/outbox.py` (`defer_for_subject`), `loop/interfaces/cli.py` (`learning`); `tests/vnext/test_telegram.py` (+18), `test_outbox.py` (+4), `test_cli.py` (+5); 14 mutations verified | 1,955 passed / 16 skipped in declared **and** randomised order; Ruff + mypy clean (213 files). `/snooze` moves the queued occurrence *and* records the timing signal; `/why` explains only from what was recorded. | M7 |
 | 2026-09-07 | M6 part 3: the learning loop closed | `loop/services/feedback.py` (new), `loop/runtime/routine_dispatch.py` (`shift_schedule`), `loop/app.py`; `tests/vnext/test_learning_loop_e2e.py` (21 tests); 14 mutations verified; 1 real defect fixed (path taken after in-place state change) | Snooze → durable feedback → proposal → confirmation → the routine's trigger actually moves, surviving a restart. Hypotheses and preferences written to separate vault directories; forgetting removes record, document and evidence. | Interfaces |

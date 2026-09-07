@@ -39,4 +39,10 @@ step "restart durability"
 "$PY" -m pytest tests/vnext/test_run_durability.py \
   tests/vnext/test_release_e2e.py -q --no-header
 
+step "reproducible demo through the installed commands"
+# The demo drives `loop-next` itself, so it fails when a shipped command's
+# behaviour drifts from what the walkthrough claims — which a transcript in a
+# document cannot do.
+bash scripts/demo.sh
+
 printf '\nAll acceptance checks passed.\n'
