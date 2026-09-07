@@ -41,7 +41,10 @@ class Settings(BaseSettings):
     data_dir: str = "data"
 
     # --- Capability discovery --------------------------------------------
-    capability_paths: str = '["capabilities", "data/capabilities"]'
+    # `packs` ships two validated example packs (plantcare, bikeservice) so a
+    # fresh install has something to discover and enable out of the box; the
+    # other two are owner-supplied locations.
+    capability_paths: str = '["packs", "capabilities", "data/capabilities"]'
 
     # --- Vault ------------------------------------------------------------
     # Empty by default: interfaces §7 requires an explicit selection before any
@@ -75,6 +78,14 @@ class Settings(BaseSettings):
     # Retained as an ignored key so an existing .env does not fail validation;
     # delegated device-code auth uses no secret (interfaces §9).
     outlook_client_secret: str = Field(default="", deprecated=True)
+
+    # --- HTTP API -----------------------------------------------------
+    # interfaces §4: "API bearer token is required even on localhost for
+    # content/mutations." Left blank on a fresh install so the API fails
+    # closed (every request gets 401) rather than opening itself by default.
+    http_bind: str = "127.0.0.1"
+    http_port: int = 8420
+    api_bearer_token: str = ""
 
     # ------------------------------------------------------------------ #
     # Validation

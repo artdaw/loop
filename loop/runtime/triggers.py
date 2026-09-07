@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import text
+from sqlalchemy import CursorResult, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from loop.core.clock import UTC, Clock, SystemClock, from_micros, to_micros
@@ -107,6 +107,14 @@ class Trigger:
     next_fire_at: int | None = None
     last_fire_at: int | None = None
     expires_at: int | None = None
+
+
+def _to_trigger(row: Any) -> Trigger:
+    """One place that knows the stored column order."""
+    return Trigger(id=row[0], subject_type=row[1], subject_id=row[2],
+                   kind=row[3], definition=json.loads(row[4]),
+                   enabled=bool(row[5]), revision=row[6], next_fire_at=row[7],
+                   last_fire_at=row[8], expires_at=row[9])
 
 
 class TriggerService:
@@ -231,13 +239,45 @@ class TriggerService:
                 "FROM triggers WHERE enabled = 1 AND next_fire_at IS NOT NULL "
                 "AND next_fire_at <= :now ORDER BY next_fire_at LIMIT :limit"
             ), {"now": now, "limit": limit}).all()
-        return [
-            Trigger(id=r[0], subject_type=r[1], subject_id=r[2], kind=r[3],
-                    definition=json.loads(r[4]), enabled=bool(r[5]),
-                    revision=r[6], next_fire_at=r[7], last_fire_at=r[8],
-                    expires_at=r[9])
-            for r in rows
-        ]
+        return [_to_trigger(row) for row in rows]
+
+    def for_subject(self, subject_type: str, subject_id: str, *,
+                    enabled_only: bool = True) -> list[Trigger]:
+        """Every trigger belonging to one subject.
+
+        Reconciliation needs this: after a crash between activating a routine
+        and writing its schedule, the only way to tell "active but never
+        scheduled" from "already scheduled" is to ask which triggers the
+        subject actually has.
+        """
+        clause = " AND enabled = 1" if enabled_only else ""
+        with self._sessions() as session:
+            rows = session.execute(text(
+                "SELECT id, subject_type, subject_id, kind, definition_json, "
+                "enabled, revision, next_fire_at, last_fire_at, expires_at "
+                "FROM triggers WHERE subject_type = :stype AND subject_id = :sid"
+                + clause + " ORDER BY created_at"
+            ), {"stype": subject_type, "sid": subject_id}).all()
+        return [_to_trigger(row) for row in rows]
+
+    def disable(self, trigger_id: str) -> bool:
+        """Stop a trigger firing, keeping the row and its firing history.
+
+        Deleting it would also discard the `trigger_firings` provenance that
+        proves which occurrences already ran, which is what stops a re-enabled
+        schedule replaying an old occurrence.
+        """
+        now = to_micros(self._clock.now())
+        with self._sessions() as session:
+            # Same annotation the leader lease uses: `Session.execute` is typed
+            # as returning `Result`, which has no `rowcount`, but a DML
+            # statement always returns a `CursorResult`.
+            result: CursorResult[Any] = session.execute(text(  # type: ignore[assignment]
+                "UPDATE triggers SET enabled = 0, next_fire_at = NULL, "
+                "updated_at = :now, version = version + 1 "
+                "WHERE id = :id AND enabled = 1"), {"now": now, "id": trigger_id})
+            session.commit()
+        return bool(result.rowcount)
 
     def claim_occurrence(self, trigger: Trigger, occurrence_key: str, *,
                          nominal_at: dt.datetime,

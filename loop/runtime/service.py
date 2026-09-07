@@ -48,6 +48,11 @@ class TickReport:
     jobs_claimed: int = 0
     notifications_sent: int = 0
     notifications_cancelled: int = 0
+    #: Delivery attempted and refused — most often no transport is registered
+    #: for the channel. Counted separately because "0 sent" with nothing else
+    #: reported is indistinguishable from "nothing was due", and a briefing
+    #: that was produced and then could not be delivered is not nothing.
+    notifications_failed: int = 0
     unknown_sends: int = 0
     reclaimed: int = 0
     model_calls: int = 0
@@ -139,7 +144,8 @@ class LoopService:
                  jobs: JobQueue | None = None,
                  outbox: NotificationOutbox | None = None,
                  worker_id: str | None = None,
-                 on_trigger: Callable[[Any, str], None] | None = None) -> None:
+                 on_trigger: Callable[[Any, str, str], object] | None = None
+                 ) -> None:
         self._sessions = sessions
         self._clock = clock or SystemClock()
         self.triggers = triggers or TriggerService(sessions=sessions, clock=self._clock)
@@ -147,8 +153,15 @@ class LoopService:
         self.outbox = outbox or NotificationOutbox(sessions=sessions, clock=self._clock)
         self.worker_id = worker_id or new_id()
         self.leader = LeaderLease(sessions=sessions, clock=self._clock)
-        #: Called when a trigger fires. Deterministic by contract — it must not
-        #: invoke a model, or D16/D17 stop holding.
+        #: Called when a trigger fires, with the trigger, the catch-up
+        #: decision and the *occurrence key* that was just claimed.
+        #:
+        #: The key is passed rather than recomputed by the callback: it is the
+        #: exactly-once identity this sweep already committed to
+        #: `trigger_firings`, and a callback deriving its own would be free to
+        #: derive a different one — which is how one occurrence becomes two
+        #: jobs. Deterministic by contract: this must not invoke a model, or
+        #: D16/D17 stop holding.
         self._on_trigger = on_trigger
 
     # ------------------------------------------------------------------ #
@@ -192,7 +205,7 @@ class LoopService:
             if decision == "fire_delayed":
                 report.details.append(f"{trigger.id}: delayed")
             if self._on_trigger is not None:
-                self._on_trigger(trigger, decision)
+                self._on_trigger(trigger, decision, key)
             self._advance_or_disable(trigger)
 
     def _schedule_key(self, trigger: Any) -> str:
@@ -245,6 +258,9 @@ class LoopService:
                 report.notifications_cancelled += 1
             elif state == "unknown":
                 report.unknown_sends += 1
+            elif state in ("failed", "retry_wait"):
+                report.notifications_failed += 1
+                report.details.append(f"{item.id}: delivery {state}")
 
     # ------------------------------------------------------------------ #
     # Bounded run

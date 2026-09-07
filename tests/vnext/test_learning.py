@@ -464,3 +464,82 @@ def test_p18_a_fresh_dashboard_still_does_not_override_the_record():
                                       computed_at=NOW - 60)])
 
     assert review.line_for("project:loop").progress == 0.4
+
+
+# --------------------------------------------------------------------------- #
+# M3 — the preference store survives a restart
+# --------------------------------------------------------------------------- #
+def test_m3_an_explicit_preference_survives_a_fresh_store(sessions):
+    first = PreferenceStore(sessions=sessions)
+    first.record_explicit(preference_id="x1", key="reminder_time",
+                          value="09:00", now=NOW)
+
+    second = PreferenceStore(sessions=sessions)
+    assert second.active("reminder_time").value == "09:00"
+
+
+def test_m3_a_confirmed_hypothesis_survives_a_restart(sessions, learner):
+    first = PreferenceStore(sessions=sessions)
+    proposal = learner.propose(_consistent(), subject_ref=SUBJECT, now=NOW)
+    first.propose_from(proposal, preference_id="p1", key=SUBJECT,
+                       value={"shift_minutes": 30}, now=NOW)
+    first.confirm("p1", now=NOW)
+
+    second = PreferenceStore(sessions=sessions)
+    assert second.active(SUBJECT).state is PreferenceState.CONFIRMED
+
+
+def test_m3_a_rejection_and_its_cooldown_survive_a_restart(sessions, learner):
+    """The whole point of P14: a restart must not un-suppress a rejection."""
+    first = PreferenceStore(sessions=sessions)
+    proposal = learner.propose(_consistent(), subject_ref=SUBJECT, now=NOW)
+    first.propose_from(proposal, preference_id="p1", key=SUBJECT,
+                       value={"shift_minutes": 30}, now=NOW)
+    first.reject("p1", proposal=proposal, now=NOW)
+
+    second = PreferenceStore(sessions=sessions)
+    assert second.suppressed(proposal, now=NOW + DAY) is True
+
+
+def test_m3_a_superseded_hypothesis_stays_superseded_after_restart(sessions):
+    first = PreferenceStore(sessions=sessions)
+    first.put(Preference(id="h1", key="reminder_time", value="10:30",
+                         state=PreferenceState.CONFIRMED, updated_at=NOW))
+    first.record_explicit(preference_id="x1", key="reminder_time",
+                          value="09:00", now=NOW + 60)
+
+    second = PreferenceStore(sessions=sessions)
+    assert second.get("h1").state is PreferenceState.SUPERSEDED
+    assert second.active("reminder_time").value == "09:00"
+
+
+def test_m3_forgetting_survives_a_restart(sessions):
+    """Forgetting must not come back after a restart re-hydrates the store."""
+    first = PreferenceStore(sessions=sessions)
+    first.record_explicit(preference_id="x1", key="commute_mode", value="bike",
+                          now=NOW)
+    first.forget("commute_mode", now=NOW + 60)
+
+    second = PreferenceStore(sessions=sessions)
+    assert second.active("commute_mode") is None
+    assert second.get("x1") is None
+    assert second.is_forgotten("commute_mode") is True
+
+
+def test_m3_a_forgotten_key_still_refuses_new_proposals_after_restart(
+        sessions, learner):
+    first = PreferenceStore(sessions=sessions)
+    first.forget(SUBJECT, now=NOW)
+
+    second = PreferenceStore(sessions=sessions)
+    proposal = learner.propose(_consistent(), subject_ref=SUBJECT, now=NOW + DAY)
+    assert second.propose_from(proposal, preference_id="p9", key=SUBJECT,
+                               value={"shift_minutes": 30},
+                               now=NOW + DAY) is None
+
+
+def test_m3_a_store_with_no_sessions_still_works_exactly_as_before():
+    store = PreferenceStore()
+    store.record_explicit(preference_id="x1", key="reminder_time",
+                          value="09:00", now=NOW)
+    assert store.active("reminder_time").value == "09:00"

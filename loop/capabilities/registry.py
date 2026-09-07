@@ -34,13 +34,17 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+from sqlalchemy import text
 
 from loop.agents.roles import ROLES as _ROLE_IDS_FROZEN
 from loop.core.errors import Conflict, InvalidInput, ValidationFailed
 from loop.core.ids import content_hash
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session, sessionmaker
 
 logger = logging.getLogger(__name__)
 
@@ -372,15 +376,97 @@ def hash_package(package: Path) -> str:
 # Registry
 # --------------------------------------------------------------------------- #
 class CapabilityRegistry:
-    """Holds discovered pack versions and resolves operations."""
+    """Holds discovered pack versions and resolves operations.
+
+    Discovery itself needs no persistence — it re-scans the filesystem, which
+    is already the durable source of truth for what packs exist. What must
+    survive a restart is the **enablement decision**: which version of each
+    pack the owner actually turned on. Without it, a restart would either
+    silently re-enable a pack the owner disabled, or force every pack back to
+    needing re-enablement — both are the registry forgetting an authority
+    decision, which is exactly what agent-stack §4's "durable registry state"
+    is about.
+    """
 
     def __init__(self, *, roots: list[Path] | None = None,
-                 max_depth: int = 2) -> None:
+                 max_depth: int = 2,
+                 sessions: sessionmaker[Session] | None = None) -> None:
         self._roots = [Path(r) for r in (roots or [])]
         self._max_depth = max_depth
         self._entries: dict[str, RegistryEntry] = {}     # pack_key -> entry
         self._operation_owner: dict[str, str] = {}       # operation -> pack id
         self.revision = 0
+        self._sessions = sessions
+        if self._sessions is not None:
+            self._ensure_table()
+
+    # ------------------------------------------------------------------ #
+    # Persistence (optional)
+    # ------------------------------------------------------------------ #
+    def _ensure_table(self) -> None:
+        assert self._sessions is not None
+        with self._sessions() as session:
+            session.execute(text("""
+                CREATE TABLE IF NOT EXISTS capability_pack_enablement (
+                    pack_id TEXT PRIMARY KEY,
+                    enabled_version TEXT NOT NULL,
+                    updated_at BIGINT NOT NULL
+                )"""))
+            session.commit()
+
+    def _persist_enabled(self, pack_id: str, version: str) -> None:
+        if self._sessions is None:
+            return
+        import time
+
+        with self._sessions() as session:
+            session.execute(text(
+                "INSERT INTO capability_pack_enablement (pack_id, "
+                "enabled_version, updated_at) VALUES (:pack, :version, :now) "
+                "ON CONFLICT(pack_id) DO UPDATE SET "
+                "enabled_version = excluded.enabled_version, "
+                "updated_at = excluded.updated_at"),
+                {"pack": pack_id, "version": version,
+                 "now": int(time.time() * 1_000_000)})
+            session.commit()
+
+    def _persist_disabled(self, pack_id: str) -> None:
+        if self._sessions is None:
+            return
+        with self._sessions() as session:
+            session.execute(text(
+                "DELETE FROM capability_pack_enablement WHERE pack_id = :pack"),
+                {"pack": pack_id})
+            session.commit()
+
+    def reapply_enablement(self) -> list[str]:
+        """Re-enable whatever the owner had enabled, now that packs exist.
+
+        Discovery and persistence run on different clocks: `discover()` +
+        `register_all()` must happen first so the entries this looks up
+        actually exist, which is why this is a separate step rather than
+        something the constructor calls itself.
+        """
+        if self._sessions is None:
+            return []
+        with self._sessions() as session:
+            rows = session.execute(text(
+                "SELECT pack_id, enabled_version "
+                "FROM capability_pack_enablement")).all()
+
+        reapplied: list[str] = []
+        for pack_id, version in rows:
+            key = f"{pack_id}@{version}"
+            entry = self._entries.get(key)
+            if entry is None or entry.availability is Availability.INVALID:
+                # The pack that used to exist at this version is gone or now
+                # invalid; leaving it unenabled is the safe direction, and
+                # `resolve_availability` will report why elsewhere.
+                continue
+            entry.enabled = True
+            self.resolve_availability(key)
+            reapplied.append(key)
+        return reapplied
 
     # ------------------------------------------------------------------ #
     # Discovery
@@ -542,6 +628,7 @@ class CapabilityRegistry:
         entry.enabled = True
         self.revision += 1
         self.resolve_availability(key)
+        self._persist_enabled(pack_id, version)
         return entry
 
     def disable(self, pack_id: str) -> list[str]:
@@ -554,6 +641,7 @@ class CapabilityRegistry:
                 affected.append(key)
         if affected:
             self.revision += 1
+            self._persist_disabled(pack_id)
         return affected
 
     # ------------------------------------------------------------------ #

@@ -127,6 +127,22 @@ class VaultSearch:
             self.index(entry)
         return len(entries)
 
+    def indexed_paths(self, *, layers: list[str] | None = None) -> set[str]:
+        """Every path currently indexed, optionally within given layers.
+
+        Reindexing needs this to notice a *deletion*: a file removed from the
+        vault would otherwise stay searchable and citable forever, because
+        nothing else ever revisits a row once written.
+        """
+        sql = "SELECT path FROM vault_fts"
+        params: dict[str, Any] = {}
+        if layers:
+            placeholders = ", ".join(f":layer{i}" for i in range(len(layers)))
+            sql += f" WHERE layer IN ({placeholders})"
+            params.update({f"layer{i}": layer for i, layer in enumerate(layers)})
+        with self._sessions() as session:
+            return {row[0] for row in session.execute(text(sql), params).all()}
+
     def remove(self, path: str) -> None:
         """Drop a document from the index (forgetting, or an archived move)."""
         with self._sessions() as session:

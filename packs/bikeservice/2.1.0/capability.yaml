@@ -1,0 +1,36 @@
+schema_version: 1
+id: bikeservice
+version: "2.1.0"
+title: Bike service
+description: Track bicycle service intervals and propose reminders.
+owner_role: commitments
+policy_namespace: bikeservice
+defaults:
+  enabled: false
+  budget_class: background
+dependencies:
+  required:
+    - vault.search
+    - reminder.schedule
+  optional: []
+operations:
+  bikeservice.schedule:
+    description: Propose a service reminder from the last recorded service.
+    intents:
+      - "when is my bike due for a service"
+    mode: workflow
+    workflow: workflows/schedule.yaml
+    input_schema: schemas/input.schema.json
+    output_schema: schemas/output.schema.json
+    tools:
+      - vault.search
+      - reminder.schedule
+    effects:
+      - local_domain_write
+      - owner_notification_proposal
+    destinations:
+      - owner:telegram
+    timeout_seconds: 45
+    retry_policy: transient
+    idempotency: root_effect_slot
+    result_artifact_kind: schedule

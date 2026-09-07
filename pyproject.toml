@@ -58,6 +58,14 @@ voice = [
 
 [project.scripts]
 loop = "cli.main:main"
+# The vNext CLI over the durable coordinated stack (loop/app.py). Shipped
+# under its own name rather than replacing `loop` above: the legacy CLI's
+# autonomy/sync/voice/metrics commands have no vNext equivalent yet, and
+# agent-stack's migration note is explicit that legacy interfaces stay until
+# their replacements have matching behaviour.
+loop-next = "loop.interfaces.cli:main"
+loop-next-api = "loop.interfaces.http:main"
+loop-next-telegram = "loop.interfaces.telegram:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -97,6 +105,9 @@ ignore = ["UP042"]
 [tool.ruff.lint.per-file-ignores]
 # Tests use fakes and local imports inside test bodies by design.
 "tests/*" = ["E501"]
+# `Depends(...)` in a parameter default is FastAPI's documented DI pattern,
+# not the unsafe mutable-default B008 flags outside this framework.
+"loop/interfaces/http.py" = ["B008"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

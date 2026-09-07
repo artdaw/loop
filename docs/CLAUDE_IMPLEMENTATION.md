@@ -83,10 +83,10 @@ that does not negate the existing component tests.
 | M0 | Reconcile current worktree and acceptance evidence | Identify already closed gaps; preserve user work; record baseline failures separately | **done 2026-09-06** |
 | M1 | Complete role-scoped coordinator, typed plan producer, structured output and Reviewer repair; loop/agents and loop/capabilities/runners.py | Real graph/model-interface tests; denied scopes stay undisclosed; bad output repairs within the original budget; no invented success | **done 2026-09-06** |
 | M2 | Complete async graph lifecycle, secure checkpoint factory, child run mapping and durable worker dispatch | Actual process restart and approval resume; pinned versions; cancellation; isolated children; both commit-order crash cases | **done 2026-09-07** |
-| M3 | Replace long-lived in-memory stores with repositories and versioned migrations | Fresh service/process reads retained routines, preferences, trips, registry, objects, spend and counters; concurrency and rollback tests | pending |
-| M4 | Assemble shared application services and wire shipped CLI, HTTP and Telegram; ship validated packs and capability management | Installed command, API and bot handler traverse the same real services; two unrelated packs work without coordinator/channel/schema edits | pending |
-| M5 | Connect complete the vault and weather workflows | Natural-language capture → exact raw/ledger → sourced wiki → cited answer; activated routine → weather comparison → advice → outbox after restart | pending |
-| M6 | Complete travel research/monitoring, warning adapters, learning and remaining contract interfaces | Real adapter implementations with recorded/fake transports; scoped monitoring; durable preference feedback; unavailable sources explicitly reported | pending |
+| M3 | Replace long-lived in-memory stores with repositories and versioned migrations | Fresh service/process reads retained routines, preferences, trips, registry, objects, spend and counters; concurrency and rollback tests | **done 2026-09-07** |
+| M4 | Assemble shared application services and wire shipped CLI, HTTP and Telegram; ship validated packs and capability management | Installed command, API and bot handler traverse the same real services; two unrelated packs work without coordinator/channel/schema edits | **done 2026-09-07** |
+| M5 | Connect complete the vault and weather workflows | Natural-language capture → exact raw/ledger → sourced wiki → cited answer; activated routine → weather comparison → advice → outbox after restart | **done 2026-09-07** |
+| M6 | Complete travel research/monitoring, warning adapters, learning and remaining contract interfaces | Real adapter implementations with recorded/fake transports; scoped monitoring; durable preference feedback; unavailable sources explicitly reported | **done 2026-09-07** |
 | M7 | Re-audit all acceptance scenarios and release operation | Installed-package, Docker, real process restart and paired backup/restore checks; reproducible demos; no mandatory behavior falsely marked complete | pending |
 
 Preserve legacy interfaces until their replacements have matching behavior. The CLI
@@ -159,15 +159,40 @@ even if its old named test is green. Keep all 196 IDs from the acceptance append
 
 ### Current continuation checkpoint
 
-- State: **M0, M1, M2 done.**
-- Next action: M3 — replace the remaining long-lived in-memory stores (routines,
-  preferences, capability objects, spend reservations, notification counters, export
-  mapping) with repositories over the schema already added in migration
-  `0003_extension_state`. A schema alone is not persistence.
-- Fresh checks this session: 1,669 passed / 16 skipped (excluding the pre-existing,
-  unrelated date-boundary flake in legacy `tests/test_review.py`); Ruff clean for
-  loop+tests; mypy clean for 85 loop source files. Re-run, not inherited.
-- Known unverified release checks: fresh packaging/Docker and full connected workflows.
+- State: **M0, M1, M2, M3, M4, M5, M6 done.**
+- Next action: M7 — re-audit all 196 acceptance scenarios against the actual
+  application path, then the release checks (installed package, Docker, real
+  process restart, paired backup/restore, reproducible demos).
+- Fresh checks this session: 1,973 passed / 16 skipped, in both declared and
+  randomised order; Ruff clean; mypy clean for 215 source files (repo-wide, tests
+  included). Re-run, not inherited. `tests/test_review.py`'s date-boundary flake did
+  not reproduce today; it remains a latent legacy-code date dependency, unfixed
+  because it is outside every current milestone's scope.
+- `mypy .` fails in a checkout that still holds a `build/` directory from a
+  packaging build: the stale `build/lib/` copy of the tree makes every module a
+  duplicate. Delete `build/` (done this session) or pass `--exclude '^build/'`.
+  Not a code problem, but worth knowing before reading the error.
+- Known unverified release checks: fresh packaging/Docker and paired backup/restore.
+- Known gaps left honestly open, by name:
+  - **Travel**: no fare, availability or transport-schedule provider is shipped.
+    Every source worth trusting needs an account, and travel §4 requires
+    configured account and budget authority before an adapter that incurs
+    charges may run. `TravelResearch.unavailable()` names all three on every
+    pass, so a missing price is visibly a missing *provider*.
+  - **Telegram**: `/remind`, `/travel`, `/trips`, `/trip`, `/briefing`,
+    `/routine <description>`, `/cancel`, voice notes and inline buttons are not
+    wired. `/help` names them as unavailable rather than omitting them.
+  - **HTTP**: messages, reminders, search, research, weather, trips, approvals,
+    feedback, memory, activity, why and policy routes are still absent.
+  - **Trip check execution**: monitoring now *schedules* and queues scoped
+    `trip.check` jobs, but no worker executes one yet — there is no fare or
+    schedule provider for it to re-check against (see Travel above). The
+    change-detection logic it would call (`compare_transport`, `compare_cost`,
+    `NoticeLedger`) is complete and unit-tested.
+  `loop`'s pyproject entry point still points at the legacy `cli.main:main`;
+  `loop-next`/`loop-next-api`/`loop-next-telegram` are the new stack, kept as
+  separate entry points per the brief's own instruction to preserve legacy
+  interfaces until their replacements have matching behaviour.
 - Decisions: approved review governs readiness; Edward is presentation advice only.
 
 #### Note: a pre-existing, unrelated test flake observed this session
@@ -177,6 +202,468 @@ system date advanced past a week boundary; the module computes its window from
 `date.today()`. Confirmed via `git diff` that neither file was touched this session. Not
 fixed, since it is outside every current milestone's scope and is a legacy-code date
 dependency, not a regression.
+
+#### M6: warning adapters, travel research, and the learning loop closed
+
+Three separate gaps with the same shape as M5's: complete, tested domain logic
+with nothing feeding it. `warnings.py` knew CAP lifecycle rules and had no feed;
+`evidence.py` knew freshness ceilings and authority and had nothing that
+fetched; `learning.py` knew every threshold in vault §9 and no user action was
+ever recorded as `Feedback`.
+
+**`loop/capabilities/weather/adapters/cap.py` — official warnings.** Normalises
+CAP 1.2, the format MeteoAlarm, DWD and the NWS all publish, rather than a
+bespoke parser per country: the feed *index* differs per provider and is a few
+lines, while the alert payload is the same standard everywhere, and one parser
+means one place where official wording can be lost. MeteoAlarm is the shipped
+feed — EUMETNET, documented, no credentials, per-country.
+
+Four decisions worth recording:
+
+1. **A CAP `status` of Test, Exercise, System or Draft is not a warning.**
+   Treating a monthly test broadcast as a severe-weather alert is the loudest
+   possible false positive and is undetectable downstream.
+2. **A bbox is a superset of the true polygon.** `OfficialWarning` carries a
+   bounding box; CAP areas are polygons and circles. The enclosing box can
+   include a point the polygon excludes — the safe direction for an alert.
+   Trimming to fit would silently drop one that genuinely applies.
+3. **An alert in an unrequested language is still an alert.** `_select_info`
+   falls back to the first published block, because dropping it is missing data
+   masquerading as no warnings.
+4. **A failed or truncated read is unusable, not empty.** `warning_state` reads
+   an empty *usable* feed as "none in this checked feed" — an all-clear. So a
+   fetch failure returns `ok=False`, and a feed whose alert documents could not
+   all be read returns a `partial_reason`.
+
+Untrusted XML is bounded before parsing: `xml.etree` is not hardened against
+entity expansion and the project has no XML-security dependency, so a document
+declaring a `DOCTYPE` is refused outright. No legitimate CAP alert carries one,
+which makes the guard exact rather than heuristic.
+
+**`loop/capabilities/travel/research.py` — the fetching half of the evidence
+model.** Two real credential-free providers with transport injected: Nominatim
+for place resolution and Overpass for venue hours and accessibility. Three
+properties the contract asks for:
+
+- **Documented access is honoured, including its limits.** Nominatim's policy
+  requires ≤1 request/second and an identifying User-Agent with a contact, so
+  the contact is *required configuration* and the rate limiter is part of the
+  adapter. Ignoring that is not "free use", it is misuse.
+- **Community data is not authority.** An OSM venue record is
+  `OFFICIAL_PAGE` only when it carries its own `website`; otherwise
+  `EDITORIAL`. `SourceKind.is_authoritative` decides whether a claim may be
+  stated as fact, and OSM asserting a museum's hours is a good lead.
+- **A venue name is matched, never executed.** Overpass QL is a query language
+  and a venue name is user input; characters outside a safe set are stripped
+  rather than escaped, because a name is not code and stripping cannot be got
+  subtly wrong the way escaping can.
+
+Fares, availability and transport schedules ship **no provider at all**, by
+decision. Every trustworthy source needs an account, and travel §4 requires
+configured account and budget authority first. `unavailable_claims` names all
+three with the reason on every pass, so the gap is reported rather than looking
+like a search that found nothing.
+
+**`loop/services/feedback.py` — the learning loop, closed.** Snooze → durable
+feedback → the learner's own thresholds → a proposal asked as a question →
+confirmation that *moves the routine's trigger*. The shape follows from one
+line of vault §9, "propose moving by that median, never auto-apply":
+
+- Feedback is durable, because the learner's window is "five snoozes on
+  distinct days within 28 days" — a span that crosses restarts by definition.
+  In-memory feedback would reset the count every deploy and never fire.
+- Feedback is deduplicated by event id: a redelivered update would otherwise
+  be a second, false sample of a threshold that counts.
+- Confirmation moves the schedule through `RoutineScheduler.shift_schedule`,
+  which disables the old trigger and creates a new one rather than rewriting
+  the time in place — `trigger_firings` is keyed by trigger and revision, and
+  an in-place edit would leave today's already-fired occurrence looking unfired
+  at the new time.
+- Records are mirrored into the vault where the owner can read and delete them,
+  with hypotheses in `_mem/loop/hypotheses` kept *separate* from preferences in
+  `_mem/loop/preferences`: a hypothesis filed among stated preferences reads as
+  something the owner said, and no later correction can tell them apart again.
+- Forgetting removes the record, its vault document **and the feedback rows**.
+  Leaving the snoozes would let the very next review re-derive the belief the
+  owner just asked to forget.
+- Nonresponse is never agreement: no elapsed time turns an unanswered proposal
+  into a confirmed one, and a test asserts that at ninety days.
+
+**`loop/runtime/trip_monitor.py` — scoped monitoring, the milestone's fourth
+exit criterion.** `plan_monitoring` produced a bounded checkpoint set and
+nothing scheduled it. *Scoped* is the operative word, and it turned out to mean
+four separate properties, each now tested:
+
+1. **Scoped to the approved checks.** The resolved check set is stored with the
+   activation and travels on the job payload. A worker that re-derived it could
+   widen it; carrying it cannot.
+2. **Scoped to what can actually be done.** A plan naming an unsupported check
+   is refused outright rather than activated for the subset — the owner asked
+   to be told about something, and monitoring that silently drops one of them
+   looks identical to monitoring that found nothing (TR23).
+3. **Scoped in time.** Only future checkpoints become triggers, and each is
+   one-shot, so monitoring ends by running out rather than by anyone
+   remembering to stop it. Checkpoints that passed between *planning* and
+   *approval* are counted and reported, not fired.
+4. **Scoped by cancellation.** Deactivating disables the remaining triggers and
+   clears the notice ledger, so a cancelled trip cannot still report a delayed
+   train (TR19).
+
+`Trip.monitoring_routine_id` is deliberately not written: `trip_monitoring` is
+the authority on what is watched and with what scope, and a second copy could
+disagree with it.
+
+`LoopService` takes one trigger callback and there are now two kinds of
+scheduled subject, so `CompositeTriggerDispatcher` offers a fired trigger to
+each dispatcher in turn — keeping the routing rule inside the dispatchers
+rather than duplicating a subject-type table in the composition root.
+
+**A defect this found:** keying the trip job on `trip_id` alone would have
+collapsed the seven-day and one-day checks into a single job, with the second
+simply never running. Trigger-firing dedup does *not* catch it — each
+checkpoint is its own one-shot trigger, so they never collide there. Caught by
+mutation, then covered by firing two checkpoints and asserting two jobs.
+
+**Interfaces.** Telegram gained `/remember`, `/find`, `/ask`, `/weather`,
+`/capabilities`, `/do`, `/routines`, `/pause`, `/resume`, `/snooze`, `/review`
+and `/why`; `/help` now *names* the commands that are still unavailable rather
+than omitting them, so the owner does not learn by trial which are real.
+`/snooze` does both halves of interfaces §2: it moves the queued occurrence
+(new `NotificationOutbox.defer_for_subject`, which touches only `pending` and
+`retry_wait` rows — a `sending` row may be in flight and a `delivered` one is
+history) and records the snooze as evidence towards a timing proposal. The CLI
+gained `learning review/confirm/forget/snooze`.
+
+**One real defect, found by the tests as they were written.**
+`PreferenceStore.confirm` and `.reject` mutate the record in place and hand
+back the same object, so `journal.path_for(record)` *after* the call returned
+the new state's directory — and the hypothesis document survived alongside the
+new preference document as a second, stale copy of the same belief. The path is
+now captured before the state changes.
+
+**Two mutation survivors that were right to survive**, both removed rather than
+papered over with a test: a duplicated freshness ceiling stamped onto every
+evidence item (`EvidenceItem.freshness` already applies it, and duplicating it
+meant a later change would apply to new evidence and not old), and a
+`since=` query bound in `FeedbackService.review` that restated the learner's
+28-day window as a second constant — now derived from `learner.window_days`,
+and documented as a bounded read rather than a rule, since the rule itself is
+tested where it lives.
+
+Mutation totals for M6: 53 run — 12 on the CAP adapter, 12 on the research
+layer, 14 on the learning loop and its scheduler, 12 on scoped monitoring, and
+13 on the interfaces and outbox deferral. All killed except one, recorded here
+rather than papered over: `TripCheckDispatcher`'s subject-type guard is
+redundant for correctness with its own `state_for` lookup (a routine's subject
+id has no monitoring row either way) and is kept for cost, since it runs on
+every fired trigger of every sweep. Two further survivors were *redundancies*
+and were deleted rather than tested — a duplicated freshness ceiling and a
+restated learner window.
+
+#### M5: the vault and weather workflows, connected
+
+Both halves of M5 had the same shape of gap. Every component existed and was
+tested; nothing ran them in order. The composition root's trigger callback was
+literally `del trigger, decision`, so a routine could be activated, its trigger
+could fire on time, and no work was ever produced by any of it — and no module
+anywhere turned a capture into a compiled, citable page.
+
+**Weather: `loop/runtime/routine_dispatch.py`.** Three deliberately separate
+seams. `RoutineScheduler` writes the trigger row when a routine is activated
+(activation is authority, P01 — a schedule that lived only in memory would
+leave a restarted process with an approved routine that never runs), and
+`reconcile()` at startup finds routines that were activated by a process which
+died before writing the trigger, which is otherwise a silent nothing-happens
+with no error anywhere. `RoutineDispatcher` is the `on_trigger` callback and is
+strictly deterministic: it enqueues a durable job and returns, because the
+sweep runs on a timer whether or not anything is due and a model call there
+would break D16/D17 on every tick of every day. `RoutineJobWorker` claims that
+job and runs the routine's steps through the *same* `CapabilityInvoker`
+everything else uses, then applies notification policy before anything is
+queued for delivery.
+
+`LoopService`'s callback signature gained the claimed occurrence key. It is
+passed rather than recomputed because it is the exactly-once identity the sweep
+already committed to `trigger_firings`; a callback deriving its own is free to
+derive a different one, which is how one occurrence becomes two jobs.
+
+`loop/capabilities/weather/ports.py` registers `weather.forecast` and
+`weather.prepare` as trusted ports, so a routine step naming
+`capability: weather.prepare` resolves — previously it resolved to nothing.
+Advice rendering stays deterministic: weather §6 permits a local model to
+*phrase* advice, never to decide it, and a 07:00 briefing must work on a
+machine with no model configured. Named locations load from the vault manifest,
+not from `Settings`: a home coordinate is personal behaviour the owner edits
+without a deploy, and it is personal data that belongs where they already back
+things up.
+
+Named locations are read from the vault manifest (`_ctx/loop/manifest.yaml`,
+the path `Settings.loop_policy_path` already names). An entry missing either
+coordinate is skipped with a warning rather than half-loaded, so it surfaces
+immediately as the honest "which location?" question instead of much later as
+a type error inside an adapter:
+
+```yaml
+locations:
+  home:
+    latitude: 52.52
+    longitude: 13.405
+    timezone: Europe/Berlin
+    elevation_m: 34
+```
+
+**The restart is a real operating-system process.**
+`test_a_separate_operating_system_process_completes_the_routine` fires the
+trigger in the test process, releases the leader lease as a departing process
+would, and then runs a genuinely separate Python interpreter that finds the row
+in `jobs`, builds its own object graph, fetches three Open-Meteo models through
+a fake transport, compares them, and delivers the briefing. Nothing in memory
+bridges the two.
+
+**Vault: `loop/services/knowledge.py`.** `capture` → `compile_source` →
+`answer`, with one load-bearing decision: **a proposed claim's quote is located
+in the source's actual bytes, and the byte range is built from what was found.**
+A claim whose quote is not in the source is dropped and named. Taking the span
+on the model's word would produce pages that look sourced and are not — a model
+that paraphrases its own evidence passes every schema check downstream, and
+`ReceiptStore.validate` would happily confirm a span that the model invented
+inside a region that *was* read. This is the difference between provenance and
+a citation-shaped string.
+
+Two further honest positions: **no model configured is not a compile failure** —
+the capture stays preserved, the ledger row stays `pending`, and the report says
+so, rather than writing an empty page so that something happened; and
+**local-only content with no local model is not a cloud opportunity** —
+`_can_extract` refuses rather than escalating (a test asserts zero cloud calls
+with a fully configured cloud backend and no local model).
+
+`reindex()` was added when a test failed for the right reason: a vault that
+existed before Loop did was invisible to search, because only captures made by
+this process were ever indexed. It walks raw/wiki/journal/output only — `_ctx`
+rules, `_mem` personal state and `_archive` are policy, relationship state and
+retired material, not answers — and drops rows for files that no longer exist,
+so a deleted note stops being citable. Underscore-prefixed control files are
+excluded after noticing `0-raw/_ledger.md` was indexed and could come back as
+the answer to a question about the note it merely lists.
+
+**Reachable from shipped entry points**, not only from Python: `loop-next
+routine add/list/activate/pause`, `loop-next vault capture/compile/ask/reindex`,
+`loop-next run once` (now sweep → run queued work → sweep, with `--sweep-only`
+for the strictly deterministic half), and HTTP `POST /api/v1/captures`,
+`POST /api/v1/compile`, `GET /api/v1/questions`, `GET /api/v1/routines`,
+`POST /api/v1/routines/{slug}/activate|pause`.
+
+**Three defects found by mutation testing, in the tests rather than the code.**
+The first round of mutations reported all sixteen caught — because the harness
+passed pytest a `--timeout` flag that is not installed, so *every* run failed
+with a usage error and every mutation looked killed. After fixing the harness,
+four genuinely survived and each named a real hole:
+
+1. A constant occurrence key would have made every day after the first collide
+   on `(subject_ref, occurrence_key)` in the outbox — the owner's morning
+   briefing would simply stop arriving, with no error anywhere. Now covered by
+   firing two consecutive days and asserting two distinct deliveries.
+2. Nothing reached a policy `SUPPRESS`, because the destination and paused
+   checks returned earlier. Now covered by the contract's own "working from
+   home today suppresses the commute-scoped routine" case.
+3. `for_subject` ignoring its subject filter was invisible with one routine in
+   every test.
+4. `test_a_bare_link_is_recorded_as_unfetched_not_invented` was passing for the
+   wrong reason: the fixture's bare-link source is already `unfetched`, so the
+   test exercised the "row is not pending" branch while appearing to test
+   bare-link classification. Rewritten to capture a bare link first.
+
+**Live verification beyond pytest, and the two defects it found.** Both were
+invisible to a hermetic suite because both are about what happens when a real
+dependency behaves in a way no fixture was written to imitate.
+
+Run through the installed `loop-next` against a scratch vault, with the real
+local model (`llama3.1:8b`) and the real Open-Meteo API:
+
+1. `vault capture` → the exact note, pipe intact, at `0-raw/inbox/<date>-<slug>.md`
+   with a `pending` ledger row.
+2. `vault compile` → on one run, rule 8 correctly refused: a single isolated
+   claim with no existing page to link to stayed `pending` with no concept
+   invented. After adding a `lead-time` page to link to, a later run wrote a
+   real page with `sources:` pointing at the capture and a genuine
+   `[[Lead time]]` link — with the model's quote verified against the source
+   bytes.
+3. `vault ask` → cited the compiled page and carried its raw source chain.
+4. `routine add` → `activate` → `run once` → the trigger fired, the routine ran
+   against the live API, and policy returned `send`.
+
+**Defect 1 — a model that is configured but not capable aborted the batch.**
+An 8B model returns prose instead of the schema perhaps half the time.
+`invoke_structured` raises `ValidationFailed`, `compile_source` propagated it,
+and `compile_pending` therefore died on the first bad source — silently
+skipping every source after it, and exiting non-zero from the CLI. Now a failed
+extraction defers *that* source with its reason, keeps the capture, leaves the
+row `pending` so it is retried when the model situation changes, and the batch
+continues. (This also revealed that the `result.value is None` branch in
+`_extract` was unreachable — `invoke_structured` raises rather than returning
+`None` — so it was removed rather than left as a check that reads like it does
+something.)
+
+**Defect 2 — an undeliverable briefing was indistinguishable from an idle
+service.** The live sweep printed "0 notification(s) sent", which is exactly
+what a sweep with nothing due prints — while a briefing had in fact been
+produced, queued, and then refused at the transport because no channel is
+configured. `TickReport` gained `notifications_failed`, and `run once` reports
+it.
+
+**Acceptance evidence level.** The supporting matrix is left untouched: its
+inherited labels need the scenario-level re-audit M7 owns, and appending test
+names to rows without that audit would be the same overstatement the brief
+warns about. What M5 changes is the *level* at which some of them are provable.
+These now have application-level coverage — the whole path through
+`build_application()`, and for several of them through a shipped entry point —
+in addition to their existing component tests:
+
+| ID | Now also proven at | By |
+|---|---|---|
+| P01 | application + CLI + HTTP | activation writes the schedule and reports the next run; the routine actually runs |
+| P02 | application + CLI | a missing location produces the question, and no forecast for a guessed city |
+| V02 | application + CLI + HTTP | trailing whitespace and a body pipe survive; the ledger keeps six columns |
+| V06 | application | a claim whose quote is not in the source bytes is dropped before any wiki write |
+| V09 | application | an isolated unverifiable source stays `pending` with no page invented |
+| V11 | application | a human-owned page is appended to, never rewritten |
+| V14 | application + CLI | a bare link becomes `unfetched`; no content invented |
+| WF16 | application | an unresolvable location asks instead of guessing from the timezone |
+| WF20 | application | a discretionary routine in quiet hours defers to the digest and arrives at it |
+
+Mutation totals for M5: 44 mutations run — 17 on the routine/weather path, 19
+on the knowledge service and its index, 8 on the CLI and HTTP surfaces — all
+killed after the four test gaps above (and one more, an HTTP capture that
+always reported "saved") were closed.
+
+#### M4: composition root, CLI, HTTP API and Telegram bot
+
+Agent-stack §1: *"CLI, bot and web share application services."* Every prior milestone
+built a service in isolation with its own tests; M4 is the point where an actual
+process — installed command, HTTP request, or Telegram update — reaches them, and where
+two independent packs (`packs/plantcare/1.0.0`, `packs/bikeservice/2.1.0`) prove the
+registry needs no coordinator/channel/schema edit to add a new capability (agent-stack §2).
+
+**`loop/app.py` — the composition root.** One `build_application(settings=None, *,
+clock=None, apply_migrations=True) -> Application` function every interface calls.
+It runs migrations, builds one `sessionmaker`, and constructs every service against it
+in dependency order (tasks → triggers → jobs → outbox → intake → operations → runs →
+the eight M3 stores → registry [`discover()` then `register_all()` then
+`reapply_enablement()`, in that order since enablement needs entries to already exist]
+→ artifacts/invoker → roles → coordinator → `LoopService` → `CoordinatorJobWorker`).
+`tests/vnext/test_app.py`, 12 tests, 3 mutations verified (a redundant manual
+`reapply_enablement()` call in one test was itself masking a real gap — removed once
+found, strengthening the test rather than leaving a false pass).
+
+Two duplicate helper functions (`_capability_roots`, a hand-rolled `_vault_root`) were
+written first and then deleted in favour of the pre-existing `Settings.capability_roots`/
+`Settings.vault_root` properties, which already resolved paths correctly — a case of
+almost reintroducing logic that was one property access away. A nonsensical
+`allow_local_only=not context.privacy.is_local_only or True` expression (always `True`
+regardless of the left side, from an `or True` typo) in the trusted `vault.search`
+handler was caught and fixed to a plain `True` with a comment explaining why the handler
+cannot honestly derive the value from context yet.
+
+**Shipped packs.** `packs/plantcare/1.0.0/` (agent-mode) and `packs/bikeservice/2.1.0/`
+(workflow-mode) are real on-disk manifests, not fixtures — built by invoking the existing
+`tests/vnext/pack_fixtures.py` builders directly against the repo's `packs/` directory.
+`Settings.capability_paths` now defaults to `["packs", "capabilities",
+"data/capabilities"]` so a fresh install discovers them without configuration.
+
+**`loop/interfaces/cli.py` — `loop-next`.** A new Typer app, not a replacement for the
+legacy `loop` entry point: the legacy CLI's autonomy/sync/voice/metrics commands have no
+vNext equivalent yet, and the brief is explicit that legacy interfaces stay until their
+replacements have matching behaviour. `status`, `task add/list/complete`,
+`capability list/enable/disable`, `run once`, and a generic `do OPERATION ARGS_JSON` that
+proves agent-stack §2's "no new command per pack" — the same route serves
+`plantcare.advise` and any future pack. `tests/vnext/test_cli.py`, 13 tests via real
+`CliRunner` invocations against a real temp database, 3 mutations verified (one initially
+survived: an error-code collision made a JSON-decode test pass for the wrong reason —
+`ValidationFailed` also maps to exit code 2, so the mutated JSON check going missing was
+masked by the *next* check failing instead; fixed by asserting on the literal error
+message, not just the exit code). Defect found and fixed: Typer treats a parameter with a
+default value as an `--option`, not a positional argument, unless wrapped in
+`typer.Argument(default)` — `do(operation, arguments: str = "{}")` silently broke
+`loop-next do plantcare.advise '{"query":"fern"}'` until wrapped.
+
+**`loop/interfaces/http.py` — the vNext HTTP API.** Envelope, versioning and auth exactly
+as interfaces §4 specifies: success `{data, request_id, warnings}`, error
+`{error:{code,message,details},request_id}` (produced by `LoopError.to_envelope`, so the
+API and CLI's exit-code mapping cannot drift on what a failure means — reused rather than
+reimplemented once `LoopError.http_status`/`.to_envelope` were found already carrying this
+exact contract). A bearer token is required on every `/api/v1/*` route, even from
+localhost; `Settings.api_bearer_token` ships blank so a fresh install fails closed (401 on
+everything) rather than opening itself — new `HTTP_BIND`/`HTTP_PORT`/`API_BEARER_TOKEN`
+settings, documented in `config/.env.example`. `/health/live` and `/health/ready` stay
+open, since a health probe cannot be expected to hold the API's own secret.
+
+*Scope, stated plainly*: interfaces §4 names a much larger surface (messages, reminders,
+captures, search, questions, research, compile, weather, trips, routines, approvals,
+feedback, memory, activity, why, policy). This pass wires the subset backed by services
+that already exist end-to-end — tasks (list/create/complete), capabilities
+(list/get/enable/disable/invoke), status, health — using the exact envelope and auth
+contract every later route must also follow. The remaining routes are not stubbed; a
+route returning a canned 200 would be a worse kind of incomplete than a 404.
+
+`tests/vnext/test_http.py`, 17 tests via FastAPI's real `TestClient` (a genuine ASGI
+dispatch, not a call to the route function) against a real temp database, 2 mutations
+verified: disabling the bearer-token comparison is caught by the auth tests; forcing the
+`LoopError` handler to always return HTTP 200 is caught by both the conflict test (a stale
+`expected_version` must be 409) and the error-envelope-shape test. Also fixed while
+building: `CapabilityRegistry.get(pack_key)` keys on `id@version`, not the bare `pack_id`
+`enable`/`disable` accept — `GET /api/v1/capabilities/{pack_id}` resolves this by matching
+`manifest.id` across entries and preferring the enabled version.
+
+**`loop/interfaces/telegram.py` — the vNext Telegram bot.** Every update is authenticated
+and durably recorded through the *same* `EventIntake` the runtime cycle already uses
+(`loop/runtime/intake.py`) before any command runs, so pairing and dedup are not
+reimplemented — an unpaired instance refuses every sender identically regardless of which
+interface it arrived through (interfaces §2: "an unbound instance MUST NOT accept the
+first arbitrary /start as its owner"), and a redelivered update is absorbed as a duplicate
+rather than executed twice.
+
+Deliberately **not** built on `telegram.ext.Application`/`Updater`: that polling loop
+advances its own update offset as part of *fetching* the next batch, before any handler
+has run — backwards from interfaces §2's explicit requirement to "persist inbound update
+before advancing the polling acknowledgement/checkpoint." This module calls
+`Bot.get_updates(offset=...)` directly and only advances its own (in-memory) offset after
+`EventIntake.accept` has durably committed the update. On a restart the offset resets to
+whatever Telegram itself still holds unacknowledged; `EventIntake`'s own idempotency key
+(`telegram:<update_id>`) absorbs the resulting replay, so no separate durable offset store
+is needed. `Bot.initialize()`/`Bot.shutdown()` are the pinned library's own lifecycle
+methods, called by a caller-driven `run_forever()`/`request_stop()` pair rather than the
+module calling `asyncio.run` itself — "one async bot lifecycle under the service's event
+loop," not a fire-and-forget task.
+
+*Scope, stated plainly*: `/start`, `/help`, `/status`, `/task`, `/tasks`, `/done` are real
+and tested. The rest of interfaces §2's command table (`/remind`, `/snooze`, `/remember`,
+`/find`, `/ask`, `/travel`, `/weather`, `/capabilities`, `/do`, `/briefing`, `/routine*`,
+`/review`, `/why`, `/cancel`, voice notes, inline buttons, and the short-lived local
+pairing flow as an alternative to static `TELEGRAM_CHAT_ID`/`TELEGRAM_USER_ID`) is not
+wired yet, for the same reason as the HTTP gap above.
+
+`tests/vnext/test_telegram.py`, 11 tests against real `telegram.Update`/`Message`/`Chat`/
+`User` model construction and a real `build_application()`, with only the network calls
+(`get_updates`/`send_message`/`initialize`/`shutdown`) faked. 2 mutations verified:
+dropping the sender-ID check in `EventIntake._verify_identity` is caught by the
+different-sender test; skipping the `result.created` dedup check is caught by the
+redelivery test (a second identical update would otherwise create a second task and send
+a second reply).
+
+**Incidental cleanup found while running `mypy .` repo-wide for the first time this
+session** (prior "mypy clean" checkpoints scoped to `loop/` only, not `tests/`): five
+existing test fixture helpers (`test_app.py:_context`, `test_weather.py:_warning`,
+`test_travel.py:_museum`, `travel_fixtures.py:brief`, `test_routines_notify.py:_candidate`)
+built a `**kw: Any`-shaped defaults dict that mypy widened to `dict[str, object]`, making
+every downstream `**defaults` call a type error. Annotated `defaults: dict[str, Any]` at
+each site — a test-only typing fix, no behaviour change, all still pass. Repo-wide `ruff
+check .` and `mypy .` are both clean (202 source files) as of this checkpoint.
+
+**Live verification beyond pytest.** `loop-next-api` installed via `uv sync` and run as a
+real Uvicorn server against a fresh temp directory: `/health/live` (no token) returned
+200, `/api/v1/tasks` with no `Authorization` header returned 401, a task created via
+`POST /api/v1/tasks` with a bearer token was returned by a subsequent `GET
+/api/v1/tasks` — the installed command, not a test client, exercising the real services.
 
 #### M2 part 3: durable child run identities
 
@@ -304,6 +791,54 @@ structure must be adjustable.
   accepted as the same layout so an existing vault is not reported unrecognised.
 - `origin` on a capture defaults to `owner`, not a person's name.
 
+#### M3 delivered — all eight in-memory stores now persist
+
+Pattern used throughout: constructor accepts optional `sessions:
+sessionmaker[Session] | None`. Given, it ensures its table(s) and hydrates from them at
+construction (read-through); every mutation writes through immediately. Omitted, the
+class is exactly the in-memory object every pre-existing test already constructs — so
+none of the ~1,700 tests that predate this milestone needed to change.
+
+| Store | Table(s) | What must survive, and why |
+|---|---|---|
+| `DailySpendLedger` | `spend_reservations` | An unremembered reservation lets the daily cloud budget be spent twice (A20) |
+| `NotificationManager` | `notification_deliveries` | A forgotten count reopens the discretionary cap at every restart |
+| `RoutineService` | `routines` | Activation is authority; unrecorded, a routine is either silently inactive or silently running with no record of who approved it (P01) |
+| `PreferenceStore` | `preferences`, `preference_rejections`, `forgotten_preferences` | A forgotten rejection un-suppresses a proposal (P14); forgetting itself must not un-forget (P17) |
+| `CapabilityObjectStore` | `capability_schemas`, `capability_objects` | `expected_version` is a concurrency control; a schema's `is_latest` pointer and a breaking-change migration record are both authority decisions (EX11, EX13) |
+| `CapabilityRegistry` | `capability_pack_enablement` | Which pack the owner turned on is a decision, not derivable from the filesystem the way discovery is |
+| `TripStore` | `trips` | Which option the owner selected must survive a restart (TR13) — see the scoping note below |
+| `ExportMap` | `remote_links`, `export_scopes` | A scope is authority to push to a shared destination; losing it either reopens access that was scoped shut or silently stops updating an object Loop already owns remotely (A18) |
+
+**`PreferenceStore._queued_proposals` is the one piece of state left in-memory-only on
+purpose** even when persistent: it is same-session bookkeeping for "which shift is
+currently on offer", rebuilt the next time the timing learner runs — not a decision
+whose loss would let anything double-fire.
+
+**`TripStore` persists trip pointers and the full `TripBrief`, not `Revision`/
+`PlanResult`.** `TripBrief` and its nested types (`PlaceRef`, `DateWindow`, `Travelers`,
+`Budget`, `Assumption`) gained `to_json`/`from_json` and round-trip cleanly — no
+datetimes, no deeply nested option/segment graphs. `PlanResult` does have exactly that
+(a per-option list of `Segment`s carrying raw `datetime` fields, `CostTotal`,
+`ScheduleFinding`s, enums), with no existing serializer, and inventing a partial or
+lossy one would be worse than the honest gap: a `Revision.option()` read back missing
+fields other code expects is a silent wrong-shape bug, not a missing feature. This
+mirrors the coordinator's own M2 decision not to checkpoint its parsed plan object —
+persist the pointer that must not be forgotten (which option was selected), leave the
+rich object to be recomputed or, in a future pass, read back from a proper artifact
+store the way travel §6 actually specifies ("persist bundles/evidence as labelled
+versioned artifacts").
+
+**Two real defects found while wiring this**, beyond the ones already logged for M1/M2:
+none this time — all eight stores' mutation tests passed on the first implementation,
+which is itself informative: the pattern (hydrate at construction, write through per
+mutation, no sessions means no behaviour change) is simple enough not to have hidden a
+bug the way the coordinator's cross-cutting repair loop and budget accounting did.
+
+Every store's persistence was mutation-verified: the mutation that skips a write, skips
+a delete, skips a flag flip, or lets a load skip a table's filter was run and killed for
+all eight — 30 mutations total across this milestone, all caught.
+
 #### M0 reconciliation result
 
 Already closed by staged user work, reused rather than reimplemented:
@@ -333,7 +868,21 @@ Confirmed still open at M0, by inspection of the actual source:
 
 | Date | Milestone / acceptance IDs | Files and commands | Result and evidence level | Remaining / next |
 |---|---|---|---|---|
+| 2026-09-07 | M6 part 5: scoped trip monitoring | `loop/runtime/trip_monitor.py` (new: `TripMonitorScheduler`, `TripCheckDispatcher`, `CompositeTriggerDispatcher`), `loop/app.py`; `tests/vnext/test_trip_monitor_e2e.py` (18 tests); 12 mutations run, 11 killed, 1 documented redundancy; 1 real defect found (per-trip dedupe key collapsing every checkpoint into one job) | 1,973 passed / 16 skipped in declared **and** randomised order; Ruff + mypy clean (215 files). Checkpoints become durable one-shot triggers carrying the approved check scope; cancellation stops both the checks and the notices. | M7 |
+| 2026-09-07 | M6 part 4: remaining interfaces | `loop/interfaces/telegram.py` (12 new commands, honest `/help`), `loop/runtime/outbox.py` (`defer_for_subject`), `loop/interfaces/cli.py` (`learning`); `tests/vnext/test_telegram.py` (+18), `test_outbox.py` (+4), `test_cli.py` (+5); 14 mutations verified | 1,955 passed / 16 skipped in declared **and** randomised order; Ruff + mypy clean (213 files). `/snooze` moves the queued occurrence *and* records the timing signal; `/why` explains only from what was recorded. | M7 |
+| 2026-09-07 | M6 part 3: the learning loop closed | `loop/services/feedback.py` (new), `loop/runtime/routine_dispatch.py` (`shift_schedule`), `loop/app.py`; `tests/vnext/test_learning_loop_e2e.py` (21 tests); 14 mutations verified; 1 real defect fixed (path taken after in-place state change) | Snooze → durable feedback → proposal → confirmation → the routine's trigger actually moves, surviving a restart. Hypotheses and preferences written to separate vault directories; forgetting removes record, document and evidence. | Interfaces |
+| 2026-09-07 | M6 part 2: travel research providers | `loop/capabilities/travel/research.py` (new: Nominatim, Overpass, rate limiter, `TravelResearch`); `tests/vnext/test_travel_research.py` (22 tests); 12 mutations verified, 1 redundancy deleted | Real adapters against recorded payloads, no network. Fare/availability/schedule explicitly unavailable with reasons, never faked. Documented rate limits enforced, not assumed. | Learning |
+| 2026-09-07 | M6 part 1: official warning adapters | `loop/capabilities/weather/adapters/cap.py` (new: CAP 1.2 + MeteoAlarm), `loop/capabilities/weather/ports.py` (`load_warning_feeds`), `loop/app.py`; `tests/vnext/test_warning_adapters.py` (29 tests), `test_routine_weather_e2e.py` (+3); 12 mutations verified | An official warning now reaches the delivered briefing with the publisher's own wording and link. A feed outage stays `unknown`, never an all-clear; an unconfigured feed is a distinct, stated state. | Travel research |
+| 2026-09-07 | M5 part 2: the vault workflow | `loop/services/knowledge.py` (new), `loop/vault/search.py` (`indexed_paths`), `loop/ai/model_gateway.py` (`has_local_model`/`has_cloud_model`), `loop/interfaces/cli.py` (`vault capture/compile/ask/reindex`), `loop/interfaces/http.py` (captures, compile, questions); `tests/vnext/test_knowledge_e2e.py` (26 tests), plus CLI and HTTP coverage; 19 mutations verified on the service, 8 on the interfaces | 1,853 passed / 16 skipped in declared **and** randomised order; Ruff + mypy clean (207 files). Capture → exact raw + ledger row → compiled wiki page whose every claim's quote was located in the source bytes → cited answer carrying the source chain. Application-level, through `build_application()` and through the shipped CLI/HTTP. | M6 |
+| 2026-09-07 | M5 part 1: the weather routine workflow | `loop/runtime/routine_dispatch.py` (new), `loop/capabilities/weather/ports.py` (new), `loop/runtime/triggers.py` (`for_subject`, `disable`), `loop/runtime/service.py` (occurrence key passed to `on_trigger`), `loop/app.py` (weather/transport/model injection, startup reconcile), `loop/interfaces/cli.py` (`routine`, `run once`), `loop/interfaces/http.py` (routines); `tests/vnext/test_routine_weather_e2e.py` (22 tests); 17 mutations verified | Activated routine → trigger → durable job → three compared Open-Meteo models → advice → outbox → delivered once, with a **genuinely separate OS process** doing everything after the trigger fired. Quiet hours, scope suppression, provider outage, missing destination and an undeliverable channel all covered. Live: `loop-next routine add/activate/run once` against the real Open-Meteo API. | M5 part 2 |
+| 2026-09-07 | M4 part 4: Telegram bot | `loop/interfaces/telegram.py` (new, `Bot.get_updates` polled directly rather than PTB's `Application`, so the offset advances only after `EventIntake.accept` commits); `tests/vnext/test_telegram.py`, 11 tests, 2 mutations verified | 1,765 passed / 16 skipped (repo-wide, tests included); Ruff + mypy clean (202 files). `/start /help /status /task /tasks /done` real and tested; the rest of interfaces §2's command table deferred (see M4 section). | M5 |
+| 2026-09-07 | M4 part 3: HTTP API | `loop/interfaces/http.py` (new), `Settings.api_bearer_token`/`http_bind`/`http_port` (new); `tests/vnext/test_http.py`, 17 tests via real FastAPI `TestClient`, 2 mutations verified; live Uvicorn smoke test against a fresh temp dir | Same suite totals as above. Envelope/auth/versioning per interfaces §4 on tasks, capabilities, status, health; the larger §4 route surface deferred (see M4 section). | Telegram |
+| 2026-09-07 | M4 parts 1–2: composition root, CLI, shipped packs | `loop/app.py` (new), `loop/interfaces/cli.py` (new, `loop-next`), `packs/plantcare/1.0.0`, `packs/bikeservice/2.1.0`; `tests/vnext/test_app.py` (12 tests, 3 mutations verified), `tests/vnext/test_cli.py` (13 tests, 3 mutations verified) | Every interface now calls one `build_application()`; two independent packs discovered with no coordinator/channel/schema edit. | HTTP, Telegram |
 | 2026-09-06 | Preparation | Consolidated document and preserved archives | Documentation only | Begin M0 |
+| 2026-09-07 | M3 part 4: trips + export map persisted | `loop/capabilities/travel/brief.py` (to_json/from_json on `TripBrief` and nested types), `loop/capabilities/travel/trip.py` (`TripStore`, pointers only), `loop/services/export_map.py` (`ExportMap`), migration `0004_trips`; 11 new tests, 6 mutations verified | 1,712 passed / 16 skipped; Ruff + mypy clean. **All 8 M3 stores now persist.** Trips deliberately persist pointers + brief only, not the full `PlanResult`/`Option`/`Segment` graph — documented rationale below. | M4 |
+| 2026-09-07 | M3 part 3: registry enablement persisted | `loop/capabilities/registry.py` (`CapabilityRegistry`, new `capability_pack_enablement` table, `reapply_enablement()`); 5 new tests, 2 mutations verified | 1,701 passed / 16 skipped; Ruff + mypy clean. Discovery itself stays filesystem-driven and unpersisted (already durable, already idempotent); only the owner's enable/disable decision is stored, and a fresh registry needs `discover()` + `register_all()` + `reapply_enablement()` in that order since entries must exist before enablement can attach to them. | Trips, export map |
+| 2026-09-07 | M3 part 2: preferences + capability objects persisted | `loop/services/learning.py` (`PreferenceStore`), `loop/capabilities/objects.py` (`CapabilityObjectStore`); 14 new tests, 9 mutations verified | 1,696 passed / 16 skipped; Ruff + mypy clean. `PreferenceStore._queued_proposals` deliberately stays in-memory-only (rebuilt by the timing learner, not a decision whose loss double-fires anything); everything else — records, rejections, forgotten keys, schemas, objects, the `is_latest` pointer — is write-through. | Trips, registry, export map (need new tables) |
+| 2026-09-07 | M3 part 1: spend, notifications, routines persisted | `loop/ai/spend.py`, `loop/runtime/notify_policy.py`, `loop/runtime/routines.py` (all gained optional `sessions=` write-through/read-through, in that priority order per the migration's own docstring); 12 new tests, 7 mutations verified | 1,682 passed / 16 skipped; Ruff + mypy clean. Pattern: constructor accepts optional `sessions`, hydrates at construction when given, writes through on every mutation; omitted, behaves exactly as the in-memory object every existing test already constructs. | Preferences, capability objects, trips, registry, export map |
 | 2026-09-07 | M2 part 3: durable child run identities | `loop/runtime/runs.py` (`parent_run_id` column + migration guard, `children_of`), `loop/capabilities/runners.py` (`_run_agent_tracked`), `loop/agents/coordinator.py` (threads `parent_run_id`); `tests/vnext/test_child_run_mapping.py` (10 tests, 3 mutations verified) | 1,669 passed / 16 skipped; Ruff + mypy clean. An agent-mode capability call now records a findable child run mapping when a RunStore and parent id are present; untracked use (most existing tests) is unaffected. | M3 |
 | 2026-09-07 | M2 part 2: durable worker dispatch | `loop/runtime/coordinator_worker.py` (new: `CoordinatorJobWorker`, JSON-serialisable start/resume payloads); `tests/vnext/test_coordinator_worker.py` (9 tests, 3 mutations verified) | 1,659 passed / 16 skipped; Ruff + mypy clean. A claimed job now actually invokes the graph end to end, including a real restart between the start job (pauses) and the resume job (completes), through two separate checkpointer instances against the same file. `LoopService.tick()` is untouched and stays model-free. | M2 part 3 |
 | 2026-09-07 | M2 part 1: async graph lifecycle + secure checkpoint factory | `loop/runtime/checkpointer.py` (new), `loop/agents/coordinator.py` (`ainvoke`/`aresume`/`_apending_interrupts`), `tests/vnext/test_coordinator_async_restart.py` (7 tests, 2 mutations verified) | 1,650 passed / 16 skipped (excluding a pre-existing date-boundary flake in legacy `tests/test_review.py`, unrelated — see note); Ruff + mypy clean. A genuine restart is exercised: two separate `AsyncSqliteSaver` instances opened against the same file, the first fully closed before the second opens. | Durable worker dispatch, then child run identities |

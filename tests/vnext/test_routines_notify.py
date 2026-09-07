@@ -6,6 +6,7 @@ Covers P01, P02, P06, P07, P09, P20, P21.
 from __future__ import annotations
 
 import datetime as dt
+from typing import Any
 
 import pytest
 
@@ -306,9 +307,10 @@ def _manager(hour: int) -> NotificationManager:
     return NotificationManager(policy=NotificationPolicy(), clock=_clock_at(hour))
 
 
-def _candidate(category: Category = Category.DISCRETIONARY, **kw) -> Candidate:
-    defaults = {"category": category, "subject_ref": "task:t1",
-                "occurrence_key": "occ-1", "why_now": "because"}
+def _candidate(category: Category = Category.DISCRETIONARY,
+              **kw: Any) -> Candidate:
+    defaults: dict[str, Any] = {"category": category, "subject_ref": "task:t1",
+                                "occurrence_key": "occ-1", "why_now": "because"}
     defaults.update(kw)
     return Candidate(**defaults)
 
@@ -499,3 +501,102 @@ def test_an_unrelated_scope_is_unaffected():
     manager.suppress_scope("commute", until=_clock_at(20).now())
 
     assert manager.decide(_candidate(scope="medication")).sends is True
+
+
+# --------------------------------------------------------------------------- #
+# M3 — the notification manager survives a restart
+# --------------------------------------------------------------------------- #
+def test_m3_the_daily_cap_survives_a_fresh_manager_instance(sessions):
+    """An unremembered count would silently reopen the daily cap on restart."""
+    clock = _clock_at(12)
+    first = NotificationManager(policy=NotificationPolicy(), clock=clock,
+                                sessions=sessions)
+    for index in range(3):
+        candidate = _candidate(subject_ref=f"task:{index}")
+        assert first.decide(candidate).sends
+        first.record_sent(candidate)
+
+    second = NotificationManager(policy=NotificationPolicy(), clock=clock,
+                                 sessions=sessions)
+    outcome = second.decide(_candidate(subject_ref="task:9"))
+    assert outcome.decision is Decision.DEFER_TO_DIGEST
+
+
+def test_m3_the_subject_cooldown_survives_a_restart(sessions):
+    clock = _clock_at(12)
+    first = NotificationManager(policy=NotificationPolicy(), clock=clock,
+                                sessions=sessions)
+    candidate = _candidate(subject_ref="task:cooldown")
+    first.record_sent(candidate)
+
+    # Advance a couple of hours before the "restart" reload — well inside the
+    # 6-hour cooldown and the 48-hour load window, but far enough that a load
+    # window bound to "now" rather than "now minus a real lookback" would
+    # already have missed this row.
+    clock.advance(hours=2)
+    second = NotificationManager(policy=NotificationPolicy(), clock=clock,
+                                 sessions=sessions)
+    outcome = second.decide(_candidate(subject_ref="task:cooldown"))
+    assert outcome.decision is Decision.DEFER_TO_DIGEST
+
+
+def test_m3_a_manager_with_no_sessions_still_works_exactly_as_before():
+    """Every existing unit test constructs the manager with no `sessions`."""
+    manager = _manager(12)
+    candidate = _candidate(subject_ref="task:1")
+    manager.record_sent(candidate)
+    assert manager.decide(_candidate(subject_ref="task:1")).decision \
+        is Decision.DEFER_TO_DIGEST
+
+
+# --------------------------------------------------------------------------- #
+# M3 — routine activation survives a restart
+# --------------------------------------------------------------------------- #
+def test_m3_a_saved_routine_survives_a_fresh_service_instance(sessions):
+    first = RoutineService(sessions=sessions)
+    first.save(_parse(COMPLETE))
+
+    second = RoutineService(sessions=sessions)
+    routine = second.get("weekday-departure-weather")
+    assert routine is not None
+    assert routine.status is RoutineStatus.PROPOSED
+    assert routine.trigger["at"] == "07:30"
+
+
+def test_m3_activation_authority_survives_a_restart(sessions):
+    """A routine whose activation is not recorded is either silently inactive
+    or silently running with no record of who approved it."""
+    first = RoutineService(sessions=sessions)
+    first.save(_parse(COMPLETE))
+    first.activate("weekday-departure-weather", activation_event_id="event-42")
+
+    second = RoutineService(sessions=sessions)
+    routine = second.get("weekday-departure-weather")
+    assert routine.status is RoutineStatus.ACTIVE
+    assert routine.activation_event_id == "event-42"
+
+
+def test_m3_pausing_survives_a_restart(sessions):
+    first = RoutineService(sessions=sessions)
+    first.save(_parse(COMPLETE))
+    first.activate("weekday-departure-weather", activation_event_id="event-1")
+    first.pause("weekday-departure-weather")
+
+    second = RoutineService(sessions=sessions)
+    assert second.get("weekday-departure-weather").status is RoutineStatus.PAUSED
+
+
+def test_m3_an_edit_survives_a_restart(sessions):
+    first = RoutineService(sessions=sessions)
+    first.save(_parse(COMPLETE))
+    edited = _parse(COMPLETE.replace('at: "07:30"', 'at: "08:00"'))
+    first.apply_edit("weekday-departure-weather", edited)
+
+    second = RoutineService(sessions=sessions)
+    assert second.get("weekday-departure-weather").trigger["at"] == "08:00"
+
+
+def test_m3_a_service_with_no_sessions_still_works_exactly_as_before():
+    service = RoutineService()
+    routine = service.save(_parse(COMPLETE))
+    assert routine.is_active is False

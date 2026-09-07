@@ -6,6 +6,8 @@ paid model.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from loop.capabilities.weather.bundle import (
@@ -506,8 +508,8 @@ def test_wf10_german_sources_are_not_hardcoded_for_every_trip():
 # --------------------------------------------------------------------------- #
 # WF11 — an official warning with mild forecasts
 # --------------------------------------------------------------------------- #
-def _warning(**kw) -> OfficialWarning:
-    defaults = {
+def _warning(**kw: Any) -> OfficialWarning:
+    defaults: dict[str, Any] = {
         "publisher": "DWD", "provider_alert_id": "alert-1", "message_id": "m1",
         "event_type": "severe_thunderstorm", "effective_at": NOW - HOUR,
         "expires_at": NOW + 6 * HOUR, "severity": Severity.SEVERE,

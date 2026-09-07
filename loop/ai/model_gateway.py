@@ -369,6 +369,23 @@ class ModelGateway:
         model = self.local_model() if backend == "local" else self.cloud_model()
         return hasattr(model, "bind_tools")
 
+    @property
+    def has_local_model(self) -> bool:
+        """Whether a local model is actually available to call.
+
+        Deterministic work must run with no model at all (I6), so a workflow
+        that genuinely needs inference asks first and reports the gap. The
+        alternative is discovering it as an exception from inside a workflow
+        that has already half-run — which, for compile, would mean a source
+        marked as processed by a run that never extracted anything.
+        """
+        return (self._local_model is not None
+                or bool(self._settings.ollama_default_model.strip()))
+
+    @property
+    def has_cloud_model(self) -> bool:
+        return self._cloud_model is not None or self._settings.cloud_available
+
     def describe_limitations(self) -> list[str]:
         """Human-readable configuration limitations, for `loop doctor`."""
         problems: list[str] = []

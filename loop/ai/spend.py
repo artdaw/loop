@@ -26,8 +26,15 @@ import logging
 import threading
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
+from sqlalchemy import text
+
+from loop.core.clock import Clock, SystemClock, to_micros
 from loop.core.errors import BudgetExhausted, Unavailable
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session, sessionmaker
 
 logger = logging.getLogger(__name__)
 
@@ -103,12 +110,84 @@ class DailySpendLedger:
     """
 
     def __init__(self, *, daily_limit_usd: float, prices: PriceBook,
-                 day: str = "") -> None:
+                 day: str = "", sessions: sessionmaker[Session] | None = None,
+                 clock: Clock | None = None) -> None:
         self.daily_limit_usd = daily_limit_usd
         self.prices = prices
         self.day = day
+        # Optional: without it the ledger is exactly the in-memory object it
+        # always was, which is what every existing unit test still constructs.
+        # With it, every reservation and settlement is write-through, so a
+        # fresh process for the same day sees what was already committed
+        # rather than reopening the full daily budget (A20).
+        self._sessions = sessions
+        self._clock = clock or SystemClock()
         self._reservations: dict[str, Reservation] = {}
         self._lock = threading.Lock()
+        if self._sessions is not None:
+            self._ensure_table()
+            self._load()
+
+    # ------------------------------------------------------------------ #
+    # Persistence (optional)
+    # ------------------------------------------------------------------ #
+    def _ensure_table(self) -> None:
+        assert self._sessions is not None
+        with self._sessions() as session:
+            session.execute(text("""
+                CREATE TABLE IF NOT EXISTS spend_reservations (
+                    id TEXT PRIMARY KEY,
+                    day TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    estimated_usd REAL NOT NULL,
+                    actual_usd REAL,
+                    state TEXT NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL
+                )"""))
+            session.commit()
+
+    def _load(self) -> None:
+        assert self._sessions is not None
+        with self._sessions() as session:
+            rows = session.execute(text(
+                "SELECT id, model_id, estimated_usd, actual_usd, state "
+                "FROM spend_reservations WHERE day = :day"),
+                {"day": self.day}).all()
+        for row in rows:
+            self._reservations[row[0]] = Reservation(
+                id=row[0], model_id=row[1], estimated_usd=row[2],
+                actual_usd=row[3], state=ReservationState(row[4]))
+
+    def _persist_new(self, reservation: Reservation) -> None:
+        if self._sessions is None:
+            return
+        now = to_micros(self._clock.now())
+        with self._sessions() as session:
+            session.execute(text(
+                "INSERT INTO spend_reservations (id, day, model_id, "
+                "estimated_usd, actual_usd, state, created_at, updated_at) "
+                "VALUES (:id, :day, :model_id, :estimated, :actual, :state, "
+                ":now, :now)"),
+                {"id": reservation.id, "day": self.day,
+                 "model_id": reservation.model_id,
+                 "estimated": reservation.estimated_usd,
+                 "actual": reservation.actual_usd,
+                 "state": reservation.state.value, "now": now})
+            session.commit()
+
+    def _persist_update(self, reservation: Reservation) -> None:
+        if self._sessions is None:
+            return
+        now = to_micros(self._clock.now())
+        with self._sessions() as session:
+            session.execute(text(
+                "UPDATE spend_reservations SET actual_usd = :actual, "
+                "state = :state, updated_at = :now WHERE id = :id"),
+                {"actual": reservation.actual_usd,
+                 "state": reservation.state.value, "now": now,
+                 "id": reservation.id})
+            session.commit()
 
     # ------------------------------------------------------------------ #
     # Inspection
@@ -154,6 +233,7 @@ class DailySpendLedger:
             reservation = Reservation(id=reservation_id, model_id=model_id,
                                       estimated_usd=estimate)
             self._reservations[reservation_id] = reservation
+            self._persist_new(reservation)
             return reservation
 
     def settle(self, reservation_id: str, *, input_tokens: int,
@@ -165,6 +245,7 @@ class DailySpendLedger:
             reservation.actual_usd = price.estimate(input_tokens=input_tokens,
                                                     output_tokens=output_tokens)
             reservation.state = ReservationState.SETTLED
+            self._persist_update(reservation)
             return reservation
 
     def release(self, reservation_id: str) -> Reservation:
@@ -173,6 +254,7 @@ class DailySpendLedger:
             reservation = self._require(reservation_id)
             reservation.state = ReservationState.RELEASED
             reservation.actual_usd = 0.0
+            self._persist_update(reservation)
             return reservation
 
     def mark_unknown(self, reservation_id: str) -> Reservation:
@@ -184,6 +266,7 @@ class DailySpendLedger:
         with self._lock:
             reservation = self._require(reservation_id)
             reservation.state = ReservationState.UNKNOWN
+            self._persist_update(reservation)
             return reservation
 
     def _require(self, reservation_id: str) -> Reservation:

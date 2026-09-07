@@ -25,9 +25,16 @@ import datetime as dt
 import logging
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
-from loop.core.clock import Clock, SystemClock
+from sqlalchemy import text
+
+from loop.core.clock import Clock, SystemClock, to_micros
+from loop.core.ids import new_id
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session, sessionmaker
 
 logger = logging.getLogger(__name__)
 
@@ -141,12 +148,72 @@ class NotificationManager:
     """Applies policy to candidates. Agents submit; this decides."""
 
     def __init__(self, *, policy: NotificationPolicy | None = None,
-                 clock: Clock | None = None) -> None:
+                 clock: Clock | None = None,
+                 sessions: sessionmaker[Session] | None = None) -> None:
         self.policy = policy or NotificationPolicy()
         self._clock = clock or SystemClock()
         #: Sent discretionary messages, for the daily cap and subject cooldown.
         self._sent: list[tuple[dt.datetime, str]] = []
         self._suppressed_scopes: dict[str, dt.datetime] = {}
+        # Optional write-through/read-through persistence. Without it this is
+        # exactly the in-memory object every existing test already constructs.
+        # With it, a restart mid-day does not forget how many discretionary
+        # messages already went out — an unremembered count would silently
+        # reopen the daily cap the moment the process restarts.
+        self._sessions = sessions
+        if self._sessions is not None:
+            self._ensure_table()
+            self._load_recent()
+
+    # ------------------------------------------------------------------ #
+    # Persistence (optional)
+    # ------------------------------------------------------------------ #
+    def _ensure_table(self) -> None:
+        assert self._sessions is not None
+        with self._sessions() as session:
+            session.execute(text("""
+                CREATE TABLE IF NOT EXISTS notification_deliveries (
+                    id TEXT PRIMARY KEY,
+                    category TEXT NOT NULL,
+                    subject_ref TEXT NOT NULL,
+                    occurrence_key TEXT NOT NULL DEFAULT '',
+                    local_date TEXT NOT NULL,
+                    sent_at BIGINT NOT NULL
+                )"""))
+            session.commit()
+
+    def _load_recent(self) -> None:
+        """Load enough history to cover the cooldown and daily-cap windows.
+
+        48 hours comfortably covers the default 6-hour subject cooldown and a
+        same-day cap check across any timezone offset, with margin.
+        """
+        assert self._sessions is not None
+        cutoff = to_micros(self._clock.now()) - 48 * 3600 * 1_000_000
+        with self._sessions() as session:
+            rows = session.execute(text(
+                "SELECT sent_at, subject_ref FROM notification_deliveries "
+                "WHERE sent_at >= :cutoff"), {"cutoff": cutoff}).all()
+        for sent_at, subject_ref in rows:
+            self._sent.append((dt.datetime.fromtimestamp(
+                sent_at / 1_000_000, tz=dt.UTC), subject_ref))
+
+    def _persist_sent(self, candidate: Candidate, sent_at: dt.datetime) -> None:
+        if self._sessions is None:
+            return
+        local_date = sent_at.astimezone(
+            ZoneInfo(self.policy.timezone)).date().isoformat()
+        with self._sessions() as session:
+            session.execute(text(
+                "INSERT INTO notification_deliveries (id, category, "
+                "subject_ref, occurrence_key, local_date, sent_at) VALUES "
+                "(:id, :category, :subject_ref, :occurrence_key, :local_date, "
+                ":sent_at)"),
+                {"id": new_id(), "category": candidate.category.value,
+                 "subject_ref": candidate.subject_ref,
+                 "occurrence_key": candidate.occurrence_key,
+                 "local_date": local_date, "sent_at": to_micros(sent_at)})
+            session.commit()
 
     # ------------------------------------------------------------------ #
     # Scoped suppression
@@ -218,7 +285,9 @@ class NotificationManager:
     def record_sent(self, candidate: Candidate) -> None:
         """Count a delivered discretionary message against the cap."""
         if candidate.is_discretionary:
-            self._sent.append((self._clock.now(), candidate.subject_ref))
+            sent_at = self._clock.now()
+            self._sent.append((sent_at, candidate.subject_ref))
+            self._persist_sent(candidate, sent_at)
 
     def _over_daily_cap(self, now: dt.datetime) -> bool:
         today = now.astimezone(ZoneInfo(self.policy.timezone)).date()

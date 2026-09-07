@@ -52,6 +52,16 @@ class PlaceRef:
         return (self.latitude is not None and self.longitude is not None
                 and bool(self.timezone))
 
+    def to_json(self) -> dict:
+        return {"label": self.label, "country_code": self.country_code,
+                "provider_place_id": self.provider_place_id,
+                "latitude": self.latitude, "longitude": self.longitude,
+                "timezone": self.timezone}
+
+    @classmethod
+    def from_json(cls, data: dict) -> PlaceRef:
+        return cls(**data)
+
 
 @dataclass
 class DateWindow:
@@ -71,6 +81,25 @@ class DateWindow:
         if self.is_fixed and self.is_flexible:
             raise ValueError(
                 "use exactly one date representation: fixed dates or a window")
+
+    def to_json(self) -> dict:
+        return {
+            "start_date": self.start_date.isoformat() if self.start_date else None,
+            "end_date": self.end_date.isoformat() if self.end_date else None,
+            "earliest_departure": self.earliest_departure.isoformat()
+            if self.earliest_departure else None,
+            "latest_return": self.latest_return.isoformat()
+            if self.latest_return else None,
+            "duration_days": self.duration_days}
+
+    @classmethod
+    def from_json(cls, data: dict) -> DateWindow:
+        parse = lambda v: dt.date.fromisoformat(v) if v else None  # noqa: E731
+        return cls(start_date=parse(data.get("start_date")),
+                  end_date=parse(data.get("end_date")),
+                  earliest_departure=parse(data.get("earliest_departure")),
+                  latest_return=parse(data.get("latest_return")),
+                  duration_days=data.get("duration_days"))
 
     @property
     def is_fixed(self) -> bool:
@@ -125,6 +154,15 @@ class Travelers:
     def count(self) -> int:
         return self.adults + self.children
 
+    def to_json(self) -> dict:
+        return {"adults": self.adults, "children": self.children,
+                "child_ages": list(self.child_ages)}
+
+    @classmethod
+    def from_json(cls, data: dict) -> Travelers:
+        return cls(adults=data.get("adults", 1), children=data.get("children", 0),
+                  child_ages=tuple(data.get("child_ages", ())))
+
 
 @dataclass
 class Budget:
@@ -138,6 +176,19 @@ class Budget:
         return (self.amount_minor * travelers if self.basis == "per_person"
                 else self.amount_minor)
 
+    def to_json(self) -> dict:
+        return {"amount_minor": self.amount_minor, "currency": self.currency,
+                "basis": self.basis, "includes": list(self.includes),
+                "hard_limit": self.hard_limit}
+
+    @classmethod
+    def from_json(cls, data: dict) -> Budget:
+        return cls(amount_minor=data["amount_minor"],
+                  currency=data.get("currency", "EUR"),
+                  basis=data.get("basis", "total"),
+                  includes=tuple(data.get("includes", ())),
+                  hard_limit=data.get("hard_limit", True))
+
 
 @dataclass
 class Assumption:
@@ -147,6 +198,14 @@ class Assumption:
     value: str
     reason: str
     source: str = "default"
+
+    def to_json(self) -> dict:
+        return {"field": self.field, "value": self.value,
+                "reason": self.reason, "source": self.source}
+
+    @classmethod
+    def from_json(cls, data: dict) -> Assumption:
+        return cls(**data)
 
 
 @dataclass
@@ -189,6 +248,65 @@ class TripBrief:
         assumption = Assumption(field_name, value, reason)
         self.assumptions.append(assumption)
         return assumption
+
+    def to_json(self) -> dict:
+        """The whole brief as plain data, for the trip record to persist.
+
+        Everything here is either a primitive or one of the small nested
+        types above with its own `to_json`/`from_json` — no datetimes or
+        segment-level detail, which is why the brief round-trips cleanly
+        while a full itinerary result (§ TripStore) does not yet.
+        """
+        return {
+            "description": self.description,
+            "origin": self.origin.to_json() if self.origin else None,
+            "destinations": [d.to_json() for d in self.destinations],
+            "date_window": self.date_window.to_json(),
+            "travelers": self.travelers.to_json(),
+            "budget": self.budget.to_json() if self.budget else None,
+            "interests": dict(self.interests),
+            "pace": self.pace.value,
+            "allowed_modes": list(self.allowed_modes),
+            "preferred_modes": list(self.preferred_modes),
+            "max_transfers": self.max_transfers,
+            "must_include": list(self.must_include),
+            "must_avoid": list(self.must_avoid),
+            "mobility_requirements": list(self.mobility_requirements),
+            "fixed_segments": list(self.fixed_segments),
+            "context_refs": list(self.context_refs),
+            "priorities": list(self.priorities),
+            "assumptions": [a.to_json() for a in self.assumptions],
+            "version": self.version,
+            "privacy": self.privacy.to_json(),
+        }
+
+    @classmethod
+    def from_json(cls, data: dict) -> TripBrief:
+        return cls(
+            description=data.get("description", ""),
+            origin=PlaceRef.from_json(data["origin"]) if data.get("origin")
+            else None,
+            destinations=tuple(PlaceRef.from_json(d)
+                               for d in data.get("destinations", ())),
+            date_window=DateWindow.from_json(data.get("date_window", {})),
+            travelers=Travelers.from_json(data.get("travelers", {})),
+            budget=Budget.from_json(data["budget"]) if data.get("budget")
+            else None,
+            interests=dict(data.get("interests", {})),
+            pace=Pace(data.get("pace", DEFAULT_PACE.value)),
+            allowed_modes=tuple(data.get("allowed_modes", ())),
+            preferred_modes=tuple(data.get("preferred_modes", ())),
+            max_transfers=data.get("max_transfers"),
+            must_include=tuple(data.get("must_include", ())),
+            must_avoid=tuple(data.get("must_avoid", ())),
+            mobility_requirements=tuple(data.get("mobility_requirements", ())),
+            fixed_segments=tuple(data.get("fixed_segments", ())),
+            context_refs=tuple(data.get("context_refs", ())),
+            priorities=tuple(data.get("priorities", ())),
+            assumptions=[Assumption.from_json(a)
+                        for a in data.get("assumptions", ())],
+            version=data.get("version", 1),
+            privacy=PrivacyLabel.from_json(data.get("privacy")))
 
 
 @dataclass

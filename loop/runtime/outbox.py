@@ -265,6 +265,42 @@ class NotificationOutbox:
     # ------------------------------------------------------------------ #
     # Delivery
     # ------------------------------------------------------------------ #
+    def defer_for_subject(self, subject_ref: str, *, until: int,
+                          session: Session | None = None) -> int:
+        """Push this subject's *undelivered* messages to a later time.
+
+        What `/snooze` actually does. Only `pending` and `retry_wait` rows move:
+        a row already `sending` may be in flight at the provider, and one
+        already `delivered` is history — rescheduling either would either
+        duplicate a message or pretend a sent one was not.
+
+        The notification's own `not_before` moves with the outbox row, so a
+        later policy check sees the deferred time rather than the original.
+        """
+        def _defer(active: Session) -> int:
+            result: CursorResult[Any] = active.execute(text(  # type: ignore[assignment]
+                "UPDATE outbox SET retry_at = :until, updated_at = :now, "
+                "version = version + 1 "
+                "WHERE state IN ('pending', 'retry_wait') "
+                "AND notification_id IN (SELECT id FROM notifications "
+                "WHERE subject_ref = :subject)"),
+                {"until": until, "now": to_micros(self._clock.now()),
+                 "subject": subject_ref})
+            active.execute(text(
+                "UPDATE notifications SET not_before = :until, updated_at = :now,"
+                " version = version + 1 WHERE subject_ref = :subject "
+                "AND state = 'pending'"),
+                {"until": until, "now": to_micros(self._clock.now()),
+                 "subject": subject_ref})
+            return int(result.rowcount or 0)
+
+        if session is not None:
+            return _defer(session)
+        with self._sessions() as own:
+            moved = _defer(own)
+            own.commit()
+            return moved
+
     def dispatch(self, item: OutboxItem) -> str:
         """Attempt one delivery. Returns the resulting outbox state.
 

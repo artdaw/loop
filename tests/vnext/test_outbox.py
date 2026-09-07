@@ -316,3 +316,62 @@ def test_delivery_records_the_provider_receipt(sessions, clock):
     outbox.dispatch(item)
 
     assert outbox.get_item(item.id).provider_receipt == "tg-4242"
+
+
+# --------------------------------------------------------------------------- #
+# Deferral — what `/snooze` does (M6)
+# --------------------------------------------------------------------------- #
+def test_deferring_moves_a_pending_message_out_of_the_due_window(sessions, clock):
+    outbox = _outbox(sessions, clock)
+    _queue(outbox)
+    assert len(outbox.due_items()) == 1
+
+    later = to_micros(clock.now()) + 3600 * 1_000_000
+    moved = outbox.defer_for_subject("task:t1", until=later)
+
+    assert moved == 1
+    assert outbox.due_items() == []
+
+
+def test_a_delivered_message_is_never_rescheduled(sessions, clock):
+    """A sent message is history; moving it would promise a second one."""
+    transport = FakeTransport()
+    outbox = _outbox(sessions, clock, transport=transport)
+    _queue(outbox)
+    assert outbox.dispatch(outbox.due_items()[0]) == "delivered"
+
+    moved = outbox.defer_for_subject(
+        "task:t1", until=to_micros(clock.now()) + 3600 * 1_000_000)
+
+    assert moved == 0
+    assert len(transport.sent) == 1
+    assert outbox.due_items() == []
+
+
+def test_deferring_leaves_another_subjects_message_alone(sessions, clock):
+    outbox = _outbox(sessions, clock)
+    _queue(outbox, subject="task:t1")
+    _queue(outbox, subject="task:t2", occurrence="occ-2")
+
+    outbox.defer_for_subject("task:t1",
+                             until=to_micros(clock.now()) + 3600 * 1_000_000)
+
+    remaining = outbox.due_items()
+    assert len(remaining) == 1
+    notification = outbox.get_notification(remaining[0].notification_id)
+    assert notification.subject_ref == "task:t2"
+
+
+def test_the_notification_itself_moves_with_its_outbox_row(sessions, clock):
+    """Otherwise a later policy check still sees the original time."""
+    outbox = _outbox(sessions, clock)
+    notification_id = _queue(outbox)
+    later = to_micros(clock.now()) + 3600 * 1_000_000
+
+    outbox.defer_for_subject("task:t1", until=later)
+
+    with sessions() as session:
+        stored = session.execute(
+            text("SELECT not_before FROM notifications WHERE id = :id"),
+            {"id": notification_id}).scalar()
+    assert stored == later

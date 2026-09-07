@@ -613,3 +613,140 @@ def test_a22_the_bound_owner_is_still_accepted(sessions, clock, settings):
         actor_user_id=settings.telegram_user_id))
 
     assert result.accepted is True
+
+
+# --------------------------------------------------------------------------- #
+# M3 — the spend ledger survives a restart (A20)
+# --------------------------------------------------------------------------- #
+def test_m3_a_reservation_survives_a_fresh_ledger_instance(sessions, clock):
+    """A fresh process for the same day must see what was already committed,
+    or the daily cloud budget can be spent twice."""
+    prices = PriceBook([ModelPrice("claude-x", input_usd_per_1k=0.003,
+                                   output_usd_per_1k=0.015,
+                                   pinned_on="2026-09-01")])
+    first = DailySpendLedger(daily_limit_usd=1.0, prices=prices, day="2026-09-07",
+                             sessions=sessions, clock=clock)
+    first.reserve(reservation_id="r1", model_id="claude-x",
+                 max_input_tokens=10_000, max_output_tokens=10_000)
+
+    second = DailySpendLedger(daily_limit_usd=1.0, prices=prices, day="2026-09-07",
+                              sessions=sessions, clock=clock)
+    assert second.committed_usd == pytest.approx(0.18)
+    assert second.get("r1") is not None
+
+
+def test_m3_settlement_survives_a_restart(sessions, clock):
+    prices = PriceBook([ModelPrice("claude-x", input_usd_per_1k=0.003,
+                                   output_usd_per_1k=0.015,
+                                   pinned_on="2026-09-01")])
+    first = DailySpendLedger(daily_limit_usd=1.0, prices=prices, day="2026-09-07",
+                             sessions=sessions, clock=clock)
+    first.reserve(reservation_id="r1", model_id="claude-x",
+                 max_input_tokens=10_000, max_output_tokens=10_000)
+    first.settle("r1", input_tokens=1000, output_tokens=100)
+
+    second = DailySpendLedger(daily_limit_usd=1.0, prices=prices, day="2026-09-07",
+                              sessions=sessions, clock=clock)
+    assert second.get("r1").state is ReservationState.SETTLED
+    assert second.committed_usd == pytest.approx(0.0045)
+
+
+def test_m3_a_different_day_does_not_see_yesterdays_reservations(sessions, clock):
+    """The daily ceiling resets per day; loading everything ever reserved
+    would silently carry yesterday's spend into today's limit."""
+    prices = PriceBook([ModelPrice("claude-x", input_usd_per_1k=0.003,
+                                   output_usd_per_1k=0.015,
+                                   pinned_on="2026-09-01")])
+    yesterday = DailySpendLedger(daily_limit_usd=1.0, prices=prices,
+                                 day="2026-09-06", sessions=sessions, clock=clock)
+    yesterday.reserve(reservation_id="r1", model_id="claude-x",
+                      max_input_tokens=10_000, max_output_tokens=10_000)
+
+    today = DailySpendLedger(daily_limit_usd=1.0, prices=prices,
+                             day="2026-09-07", sessions=sessions, clock=clock)
+    assert today.committed_usd == 0.0
+
+
+def test_m3_a_ledger_with_no_sessions_still_works_exactly_as_before(clock):
+    """Every existing unit test constructs the ledger with no `sessions`."""
+    prices = PriceBook([ModelPrice("claude-x", input_usd_per_1k=0.003,
+                                   output_usd_per_1k=0.015,
+                                   pinned_on="2026-09-01")])
+    ledger = DailySpendLedger(daily_limit_usd=1.0, prices=prices)
+    ledger.reserve(reservation_id="r1", model_id="claude-x",
+                   max_input_tokens=10_000, max_output_tokens=10_000)
+    assert ledger.committed_usd == pytest.approx(0.18)
+
+
+def test_m3_an_unknown_outcome_still_holds_after_a_restart(sessions, clock):
+    prices = PriceBook([ModelPrice("claude-x", input_usd_per_1k=0.003,
+                                   output_usd_per_1k=0.015,
+                                   pinned_on="2026-09-01")])
+    first = DailySpendLedger(daily_limit_usd=1.0, prices=prices, day="2026-09-07",
+                             sessions=sessions, clock=clock)
+    first.reserve(reservation_id="r1", model_id="claude-x",
+                 max_input_tokens=10_000, max_output_tokens=10_000)
+    first.mark_unknown("r1")
+
+    second = DailySpendLedger(daily_limit_usd=1.0, prices=prices, day="2026-09-07",
+                              sessions=sessions, clock=clock)
+    assert second.get("r1").state is ReservationState.UNKNOWN
+    assert second.committed_usd == pytest.approx(0.18)
+
+
+# --------------------------------------------------------------------------- #
+# M3 — the export map survives a restart
+# --------------------------------------------------------------------------- #
+def test_m3_an_added_link_survives_a_fresh_export_map(sessions):
+    first = ExportMap(sessions=sessions)
+    first.add_link(RemoteLink(provider="wrike", account_id="acc",
+                              remote_id="W-1", object_type="task",
+                              local_id="t-work"))
+
+    second = ExportMap(sessions=sessions)
+    decision = second.decide(provider="wrike", local_id="t-work",
+                             project_ref="project:client", object_type="task")
+    assert decision.push is True
+    assert decision.remote_id == "W-1"
+
+
+def test_m3_an_added_scope_survives_a_restart(sessions):
+    first = ExportMap(sessions=sessions)
+    first.add_scope(ExportScope(provider="wrike", project_ref="project:client",
+                                object_types=frozenset({"task"})))
+
+    second = ExportMap(sessions=sessions)
+    decision = second.decide(provider="wrike", local_id="t-new",
+                             project_ref="project:client", object_type="task")
+    assert decision.push is True
+    assert "scope" in decision.reason
+
+
+def test_m3_an_unmapped_object_still_stays_local_after_a_restart(sessions):
+    """Losing the scope on restart would be the dangerous direction; confirm
+    an object outside any persisted authority stays local either way."""
+    first = ExportMap(sessions=sessions)
+    first.add_scope(ExportScope(provider="wrike", project_ref="project:client"))
+
+    second = ExportMap(sessions=sessions)
+    decision = second.decide(provider="wrike", local_id="t-personal",
+                             project_ref="project:home", object_type="task")
+    assert decision.push is False
+
+
+def test_m3_links_constructed_inline_are_also_persisted(sessions):
+    """The constructor's own `links=`/`scopes=` args must not bypass storage."""
+    ExportMap(links=[RemoteLink(provider="wrike", account_id="acc",
+                                remote_id="W-2", object_type="task",
+                                local_id="t-inline")], sessions=sessions)
+
+    second = ExportMap(sessions=sessions)
+    assert second.link_for(provider="wrike", local_id="t-inline") is not None
+
+
+def test_m3_a_map_with_no_sessions_still_works_exactly_as_before():
+    export_map = ExportMap()
+    export_map.add_link(RemoteLink(provider="wrike", account_id="acc",
+                                   remote_id="W-1", object_type="task",
+                                   local_id="t-work"))
+    assert export_map.link_for(provider="wrike", local_id="t-work") is not None

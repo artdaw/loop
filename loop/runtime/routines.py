@@ -31,15 +31,21 @@ because that is a permission change wearing the clothes of a content edit (P21).
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+from sqlalchemy import text
 
+from loop.core.clock import Clock, SystemClock, to_micros
 from loop.core.errors import ApprovalRequired, InvalidInput
 from loop.core.ids import content_hash, new_id
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session, sessionmaker
 
 logger = logging.getLogger(__name__)
 
@@ -219,10 +225,103 @@ def _question_for(key: str) -> str:
 
 
 class RoutineService:
-    """Activation, pausing and scope-change review."""
+    """Activation, pausing and scope-change review.
 
-    def __init__(self) -> None:
+    Optionally persistent. Without `sessions` this is exactly the in-memory
+    object it always was. With it, every save/activate/pause/resume/edit is
+    write-through, and construction hydrates from the `routines` table — a
+    routine's activation is authority, and authority that is not recorded is
+    either silently inactive after a restart or, worse, silently running
+    again with no record of who approved it.
+    """
+
+    def __init__(self, *, sessions: sessionmaker[Session] | None = None,
+                clock: Clock | None = None) -> None:
         self._routines: dict[str, Routine] = {}
+        self._sessions = sessions
+        self._clock = clock or SystemClock()
+        if self._sessions is not None:
+            self._ensure_table()
+            self._load()
+
+    # ------------------------------------------------------------------ #
+    # Persistence (optional)
+    # ------------------------------------------------------------------ #
+    def _ensure_table(self) -> None:
+        assert self._sessions is not None
+        with self._sessions() as session:
+            session.execute(text("""
+                CREATE TABLE IF NOT EXISTS routines (
+                    id TEXT PRIMARY KEY,
+                    slug TEXT NOT NULL UNIQUE,
+                    title TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    activation_event_id TEXT,
+                    document TEXT NOT NULL,
+                    source_hash TEXT NOT NULL,
+                    missing_json TEXT NOT NULL DEFAULT '[]',
+                    privacy TEXT,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL
+                )"""))
+            session.commit()
+
+    def _load(self) -> None:
+        assert self._sessions is not None
+        with self._sessions() as session:
+            rows = session.execute(text(
+                "SELECT slug, title, status, activation_event_id, document, "
+                "source_hash, missing_json FROM routines")).all()
+        for row in rows:
+            body = json.loads(row[4])
+            missing = [MissingRequirement(**item) for item in json.loads(row[6])]
+            self._routines[row[0]] = Routine(
+                id=body.get("id", new_id()), slug=row[0], title=row[1],
+                trigger=body["trigger"], steps=body["steps"],
+                notification=body["notification"], limits=body["limits"],
+                privacy=body["privacy"], rationale=body["rationale"],
+                status=RoutineStatus(row[2]), activation_event_id=row[3],
+                source_hash=row[5], missing=missing)
+
+    def _persist(self, routine: Routine) -> None:
+        """Write the full routine, including its content, not only its status.
+
+        The `document` column holds the routine's own fields (trigger, steps,
+        notification, limits, privacy, rationale) as JSON — this is Loop's
+        durable record of the routine, not a vault file, so there is no raw
+        source text to preserve separately here.
+        """
+        if self._sessions is None:
+            return
+        now = to_micros(self._clock.now())
+        body = json.dumps({
+            "id": routine.id, "trigger": routine.trigger,
+            "steps": routine.steps, "notification": routine.notification,
+            "limits": routine.limits, "privacy": routine.privacy,
+            "rationale": routine.rationale}, sort_keys=True)
+        missing_json = json.dumps(
+            [{"kind": m.kind, "name": m.name, "question": m.question}
+             for m in routine.missing])
+        with self._sessions() as session:
+            session.execute(text(
+                "INSERT INTO routines (id, slug, title, status, "
+                "activation_event_id, document, source_hash, missing_json, "
+                "privacy, version, created_at, updated_at) VALUES (:id, "
+                ":slug, :title, :status, :activation, :document, :hash, "
+                ":missing, NULL, 1, :now, :now) "
+                "ON CONFLICT(slug) DO UPDATE SET "
+                "title = excluded.title, status = excluded.status, "
+                "activation_event_id = excluded.activation_event_id, "
+                "document = excluded.document, source_hash = excluded.source_hash, "
+                "missing_json = excluded.missing_json, "
+                "version = routines.version + 1, updated_at = excluded.updated_at"),
+                {"id": routine.id, "slug": routine.slug, "title": routine.title,
+                 "status": routine.status.value,
+                 "activation": routine.activation_event_id,
+                 "document": body, "hash": routine.source_hash,
+                 "missing": missing_json, "now": now})
+            session.commit()
 
     # ------------------------------------------------------------------ #
     # Saving
@@ -232,6 +331,7 @@ class RoutineService:
         routine.status = (RoutineStatus.PROPOSED if routine.missing
                           else routine.status)
         self._routines[routine.slug] = routine
+        self._persist(routine)
         return routine
 
     def get(self, slug: str) -> Routine | None:
@@ -264,11 +364,13 @@ class RoutineService:
 
         routine.status = RoutineStatus.ACTIVE
         routine.activation_event_id = activation_event_id
+        self._persist(routine)
         return routine
 
     def pause(self, slug: str) -> Routine:
         routine = self._require(slug)
         routine.status = RoutineStatus.PAUSED
+        self._persist(routine)
         return routine
 
     def resume(self, slug: str) -> Routine:
@@ -279,6 +381,7 @@ class RoutineService:
                 "This routine was never activated; activate it instead.",
                 details={"slug": slug})
         routine.status = RoutineStatus.ACTIVE
+        self._persist(routine)
         return routine
 
     def _require(self, slug: str) -> Routine:
@@ -332,6 +435,7 @@ class RoutineService:
         updated.activation_event_id = (authority_event_id
                                        or current.activation_event_id)
         self._routines[slug] = updated
+        self._persist(updated)
         return updated
 
     # ------------------------------------------------------------------ #

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from typing import Any
 
 from loop.capabilities.travel.brief import (
     Budget,
@@ -35,8 +36,8 @@ START = dt.date(2026, 10, 5)
 END = dt.date(2026, 10, 10)
 
 
-def brief(**kw) -> TripBrief:
-    defaults = {
+def brief(**kw: Any) -> TripBrief:
+    defaults: dict[str, Any] = {
         "description": "five relaxed days in northern Italy",
         "origin": BERLIN,
         "destinations": (MILAN, BOLOGNA),

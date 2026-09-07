@@ -21,11 +21,19 @@ least informative one.
 
 from __future__ import annotations
 
+import json
 import logging
 import statistics
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from sqlalchemy import text
+
+from loop.core.ids import new_id
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session, sessionmaker
 
 logger = logging.getLogger(__name__)
 
@@ -242,19 +250,172 @@ class Rejection:
 
 
 class PreferenceStore:
-    """Preferences, hypotheses and the proposal lifecycle."""
+    """Preferences, hypotheses and the proposal lifecycle.
 
-    def __init__(self) -> None:
+    Optionally persistent via `sessions`. `_queued_proposals` stays in-memory
+    only even when persistent: it is a same-session bookkeeping list for
+    "which shift is currently on offer", rebuilt the next time the timing
+    learner runs, not a decision whose loss would let something double-fire.
+    The records, rejections and forgotten-key set are exactly that kind of
+    decision, so those three are the ones that must survive a restart.
+    """
+
+    def __init__(self, *, sessions: sessionmaker[Session] | None = None
+                ) -> None:
         self._records: dict[str, Preference] = {}
         self._rejections: list[Rejection] = []
         self._queued_proposals: list[TimingProposal] = []
         self._forgotten_keys: set[tuple[str, str]] = set()
+        self._sessions = sessions
+        if self._sessions is not None:
+            self._ensure_tables()
+            self._load()
+
+    # ------------------------------------------------------------------ #
+    # Persistence (optional)
+    # ------------------------------------------------------------------ #
+    def _ensure_tables(self) -> None:
+        assert self._sessions is not None
+        with self._sessions() as session:
+            session.execute(text("""
+                CREATE TABLE IF NOT EXISTS preferences (
+                    id TEXT PRIMARY KEY,
+                    key TEXT NOT NULL,
+                    scope TEXT NOT NULL DEFAULT 'global',
+                    value_json TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    evidence_json TEXT NOT NULL DEFAULT '[]',
+                    observed_from BIGINT,
+                    observed_to BIGINT,
+                    sample_count INTEGER NOT NULL DEFAULT 0,
+                    review_after BIGINT,
+                    supersedes TEXT,
+                    rationale TEXT NOT NULL DEFAULT '',
+                    derivative_refs_json TEXT NOT NULL DEFAULT '[]',
+                    privacy TEXT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL
+                )"""))
+            session.execute(text("""
+                CREATE TABLE IF NOT EXISTS preference_rejections (
+                    id TEXT PRIMARY KEY,
+                    subject_ref TEXT NOT NULL,
+                    shift_minutes INTEGER NOT NULL,
+                    rejected_at BIGINT NOT NULL
+                )"""))
+            session.execute(text("""
+                CREATE TABLE IF NOT EXISTS forgotten_preferences (
+                    key TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    forgotten_at BIGINT NOT NULL,
+                    PRIMARY KEY (key, scope)
+                )"""))
+            session.commit()
+
+    def _load(self) -> None:
+        assert self._sessions is not None
+        with self._sessions() as session:
+            pref_rows = session.execute(text(
+                "SELECT id, key, scope, value_json, state, evidence_json, "
+                "observed_from, observed_to, sample_count, review_after, "
+                "supersedes, rationale, derivative_refs_json, created_at, "
+                "updated_at FROM preferences")).all()
+            rejection_rows = session.execute(text(
+                "SELECT subject_ref, shift_minutes, rejected_at "
+                "FROM preference_rejections")).all()
+            forgotten_rows = session.execute(text(
+                "SELECT key, scope FROM forgotten_preferences")).all()
+
+        for row in pref_rows:
+            self._records[row[0]] = Preference(
+                id=row[0], key=row[1], scope=row[2],
+                value=json.loads(row[3]), state=PreferenceState(row[4]),
+                evidence_event_ids=tuple(json.loads(row[5])),
+                observed_from=row[6], observed_to=row[7], sample_count=row[8],
+                review_after=row[9], supersedes=row[10], rationale=row[11],
+                derivative_refs=tuple(json.loads(row[12])),
+                created_at=row[13], updated_at=row[14])
+        for subject_ref, shift_minutes, rejected_at in rejection_rows:
+            self._rejections.append(
+                Rejection((subject_ref, shift_minutes), rejected_at))
+        for key, scope in forgotten_rows:
+            self._forgotten_keys.add((key, scope))
+
+    def _persist_record(self, record: Preference) -> None:
+        if self._sessions is None:
+            return
+        with self._sessions() as session:
+            session.execute(text(
+                "INSERT INTO preferences (id, key, scope, value_json, state, "
+                "evidence_json, observed_from, observed_to, sample_count, "
+                "review_after, supersedes, rationale, derivative_refs_json, "
+                "created_at, updated_at) VALUES (:id, :key, :scope, :value, "
+                ":state, :evidence, :observed_from, :observed_to, :samples, "
+                ":review_after, :supersedes, :rationale, :derivatives, "
+                ":created, :updated) "
+                "ON CONFLICT(id) DO UPDATE SET "
+                "value_json = excluded.value_json, state = excluded.state, "
+                "evidence_json = excluded.evidence_json, "
+                "observed_from = excluded.observed_from, "
+                "observed_to = excluded.observed_to, "
+                "sample_count = excluded.sample_count, "
+                "review_after = excluded.review_after, "
+                "supersedes = excluded.supersedes, "
+                "rationale = excluded.rationale, "
+                "derivative_refs_json = excluded.derivative_refs_json, "
+                "updated_at = excluded.updated_at"),
+                {"id": record.id, "key": record.key, "scope": record.scope,
+                 "value": json.dumps(record.value),
+                 "state": record.state.value,
+                 "evidence": json.dumps(list(record.evidence_event_ids)),
+                 "observed_from": record.observed_from,
+                 "observed_to": record.observed_to,
+                 "samples": record.sample_count,
+                 "review_after": record.review_after,
+                 "supersedes": record.supersedes,
+                 "rationale": record.rationale,
+                 "derivatives": json.dumps(list(record.derivative_refs)),
+                 "created": record.created_at, "updated": record.updated_at})
+            session.commit()
+
+    def _delete_record(self, record_id: str) -> None:
+        if self._sessions is None:
+            return
+        with self._sessions() as session:
+            session.execute(text("DELETE FROM preferences WHERE id = :id"),
+                            {"id": record_id})
+            session.commit()
+
+    def _persist_rejection(self, rejection: Rejection) -> None:
+        if self._sessions is None:
+            return
+        subject_ref, shift_minutes = rejection.equivalence_key
+        with self._sessions() as session:
+            session.execute(text(
+                "INSERT INTO preference_rejections (id, subject_ref, "
+                "shift_minutes, rejected_at) VALUES (:id, :subject, :shift, "
+                ":rejected_at)"),
+                {"id": new_id(), "subject": subject_ref, "shift": shift_minutes,
+                 "rejected_at": rejection.rejected_at})
+            session.commit()
+
+    def _persist_forgotten(self, key: str, scope: str, now: int) -> None:
+        if self._sessions is None:
+            return
+        with self._sessions() as session:
+            session.execute(text(
+                "INSERT INTO forgotten_preferences (key, scope, forgotten_at) "
+                "VALUES (:key, :scope, :now) "
+                "ON CONFLICT(key, scope) DO UPDATE SET forgotten_at = :now"),
+                {"key": key, "scope": scope, "now": now})
+            session.commit()
 
     # ------------------------------------------------------------------ #
     # Records
     # ------------------------------------------------------------------ #
     def put(self, preference: Preference) -> Preference:
         self._records[preference.id] = preference
+        self._persist_record(preference)
         return preference
 
     def get(self, preference_id: str) -> Preference | None:
@@ -308,6 +469,7 @@ class PreferenceStore:
             record.state = PreferenceState.SUPERSEDED
             record.updated_at = now
             record.supersedes = None
+            self._persist_record(record)
 
         self._queued_proposals = [
             p for p in self._queued_proposals if p.subject_ref != key]
@@ -340,6 +502,7 @@ class PreferenceStore:
         record.updated_at = now
         self._queued_proposals = [
             p for p in self._queued_proposals if p.subject_ref != record.key]
+        self._persist_record(record)
         return record
 
     def reject(self, preference_id: str, *, proposal: TimingProposal,
@@ -348,10 +511,13 @@ class PreferenceStore:
         record = self._require(preference_id)
         record.state = PreferenceState.REJECTED
         record.updated_at = now
-        self._rejections.append(Rejection(proposal.equivalence_key, now))
+        rejection = Rejection(proposal.equivalence_key, now)
+        self._rejections.append(rejection)
         self._queued_proposals = [
             p for p in self._queued_proposals
             if p.equivalence_key != proposal.equivalence_key]
+        self._persist_record(record)
+        self._persist_rejection(rejection)
         return record
 
     def suppressed(self, proposal: TimingProposal, *, now: int) -> bool:
@@ -386,12 +552,14 @@ class PreferenceStore:
             derivatives.extend(record.derivative_refs)
             removed.append(record.id)
             del self._records[record.id]
+            self._delete_record(record.id)
 
         before = len(self._queued_proposals)
         self._queued_proposals = [
             p for p in self._queued_proposals if p.subject_ref != key]
 
         self._forgotten_keys.add((key, scope))
+        self._persist_forgotten(key, scope, now)
         return {
             "removed_records": removed,
             "removed_derivatives": sorted(set(derivatives)),

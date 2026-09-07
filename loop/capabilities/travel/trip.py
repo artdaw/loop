@@ -23,10 +23,17 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING
+
+from sqlalchemy import text
 
 from loop.capabilities.travel.brief import TripBrief
 from loop.capabilities.travel.options import Option, PlanResult
+from loop.core.clock import Clock, SystemClock, to_micros
 from loop.core.errors import Conflict, InvalidInput
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session, sessionmaker
 
 logger = logging.getLogger(__name__)
 
@@ -85,12 +92,112 @@ class Trip:
 
 
 class TripStore:
-    """Trips and their immutable revisions."""
+    """Trips and their immutable revisions.
 
-    def __init__(self) -> None:
+    Optionally persistent via `sessions`, for the **trip pointer record**
+    only: id, brief, status, version and the current/selected revision and
+    option ids. That is the state with real concurrency and authority
+    stakes — which option the owner actually selected must survive a
+    restart, and `version` is what `expected_version` checks against.
+
+    Revisions themselves stay in-memory only, deliberately: see
+    `_r0004_trips` in the migrations module for why a partial or lossy
+    round trip of the full itinerary content would be worse than an honest
+    gap. A restarted process still knows *which* option was selected; it
+    does not yet know the full plan behind it without re-running the plan
+    or (in a future pass) reading it back from an artifact store.
+    """
+
+    def __init__(self, *, sessions: sessionmaker[Session] | None = None,
+                clock: Clock | None = None) -> None:
         self._trips: dict[str, Trip] = {}
         self._revisions: dict[str, Revision] = {}
         self._by_trip: dict[str, list[str]] = {}
+        self._sessions = sessions
+        self._clock = clock or SystemClock()
+        if self._sessions is not None:
+            self._ensure_table()
+            self._load()
+
+    # ------------------------------------------------------------------ #
+    # Persistence (optional; trip pointers only — see class docstring)
+    # ------------------------------------------------------------------ #
+    def _ensure_table(self) -> None:
+        assert self._sessions is not None
+        with self._sessions() as session:
+            session.execute(text("""
+                CREATE TABLE IF NOT EXISTS trips (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    brief_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    current_revision_id TEXT NOT NULL DEFAULT '',
+                    selected_revision_id TEXT NOT NULL DEFAULT '',
+                    selected_option_id TEXT NOT NULL DEFAULT '',
+                    monitoring_routine_id TEXT NOT NULL DEFAULT '',
+                    project_ref TEXT NOT NULL DEFAULT '',
+                    needs_review INTEGER NOT NULL DEFAULT 0,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL
+                )"""))
+            session.commit()
+
+    def _load(self) -> None:
+        assert self._sessions is not None
+        with self._sessions() as session:
+            rows = session.execute(text(
+                "SELECT id, title, brief_json, status, version, "
+                "current_revision_id, selected_revision_id, "
+                "selected_option_id, monitoring_routine_id, project_ref, "
+                "needs_review FROM trips")).all()
+        for row in rows:
+            import json
+
+            self._trips[row[0]] = Trip(
+                id=row[0], title=row[1],
+                brief=TripBrief.from_json(json.loads(row[2])),
+                status=TripStatus(row[3]), version=row[4],
+                current_revision_id=row[5], selected_revision_id=row[6],
+                selected_option_id=row[7], monitoring_routine_id=row[8],
+                project_ref=row[9], needs_review=bool(row[10]))
+            self._by_trip.setdefault(row[0], [])
+
+    def _persist_trip(self, trip: Trip) -> None:
+        if self._sessions is None:
+            return
+        import json
+
+        now = to_micros(self._clock.now())
+        with self._sessions() as session:
+            session.execute(text(
+                "INSERT INTO trips (id, title, brief_json, status, version, "
+                "current_revision_id, selected_revision_id, "
+                "selected_option_id, monitoring_routine_id, project_ref, "
+                "needs_review, created_at, updated_at) VALUES (:id, :title, "
+                ":brief, :status, :version, :current_rev, :selected_rev, "
+                ":selected_opt, :monitoring, :project, :needs_review, :now, "
+                ":now) "
+                "ON CONFLICT(id) DO UPDATE SET "
+                "title = excluded.title, brief_json = excluded.brief_json, "
+                "status = excluded.status, version = excluded.version, "
+                "current_revision_id = excluded.current_revision_id, "
+                "selected_revision_id = excluded.selected_revision_id, "
+                "selected_option_id = excluded.selected_option_id, "
+                "monitoring_routine_id = excluded.monitoring_routine_id, "
+                "project_ref = excluded.project_ref, "
+                "needs_review = excluded.needs_review, "
+                "updated_at = excluded.updated_at"),
+                {"id": trip.id, "title": trip.title,
+                 "brief": json.dumps(trip.brief.to_json()),
+                 "status": trip.status.value, "version": trip.version,
+                 "current_rev": trip.current_revision_id,
+                 "selected_rev": trip.selected_revision_id,
+                 "selected_opt": trip.selected_option_id,
+                 "monitoring": trip.monitoring_routine_id,
+                 "project": trip.project_ref,
+                 "needs_review": int(trip.needs_review), "now": now})
+            session.commit()
 
     # ------------------------------------------------------------------ #
     # Reading
@@ -120,6 +227,7 @@ class TripStore:
         trip = Trip(id=trip_id, title=title, brief=brief)
         self._trips[trip_id] = trip
         self._by_trip[trip_id] = []
+        self._persist_trip(trip)
         return trip
 
     def add_revision(self, *, revision_id: str, trip_id: str, result: PlanResult,
@@ -155,6 +263,7 @@ class TripStore:
             # The accepted plan stays visible and stays selected. It is simply
             # flagged, so the user decides whether the newer proposal is better.
             trip.needs_review = True
+        self._persist_trip(trip)
         return revision
 
     def revise_brief(self, trip_id: str, *, expected_version: int,
@@ -177,6 +286,7 @@ class TripStore:
                 created_at=existing.created_at, stale=True)
         if trip.has_selection:
             trip.needs_review = True
+        self._persist_trip(trip)
         return trip
 
     def select(self, trip_id: str, *, expected_version: int, revision_id: str,
@@ -197,6 +307,7 @@ class TripStore:
         trip.selected_option_id = option_id
         trip.needs_review = False
         trip.version += 1
+        self._persist_trip(trip)
         return trip
 
     def cancel(self, trip_id: str, *, expected_version: int) -> Trip:
@@ -205,6 +316,7 @@ class TripStore:
         trip.status = TripStatus.CANCELLED
         trip.monitoring_routine_id = ""
         trip.version += 1
+        self._persist_trip(trip)
         return trip
 
     # ------------------------------------------------------------------ #

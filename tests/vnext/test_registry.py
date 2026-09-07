@@ -426,3 +426,68 @@ def test_a_missing_root_is_ignored(tmp_path):
 def test_resolving_an_unknown_pack_is_an_error(registry):
     with pytest.raises(InvalidInput):
         registry.resolve_availability("ghost@1.0.0")
+
+
+# --------------------------------------------------------------------------- #
+# M3 — enablement survives a restart
+# --------------------------------------------------------------------------- #
+def test_m3_an_enabled_pack_survives_a_fresh_registry(roots, sessions):
+    """Discovery re-scans the filesystem; only the enablement decision itself
+    needs to survive — that is the owner's authority, not derivable data."""
+    first = CapabilityRegistry(roots=roots, sessions=sessions)
+    first.register_all(first.discover())
+    first.enable("plantcare", "1.0.0")
+
+    second = CapabilityRegistry(roots=roots, sessions=sessions)
+    second.register_all(second.discover())
+    reapplied = second.reapply_enablement()
+
+    assert "plantcare@1.0.0" in reapplied
+    assert set(second.enabled_operations()) == {"plantcare.advise"}
+
+
+def test_m3_a_disabled_pack_stays_disabled_after_a_restart(roots, sessions):
+    """The absence of an enablement decision must persist too, not just its
+    presence — otherwise disabling something is undone by every restart."""
+    first = CapabilityRegistry(roots=roots, sessions=sessions)
+    first.register_all(first.discover())
+    first.enable("plantcare", "1.0.0")
+    first.disable("plantcare")
+
+    second = CapabilityRegistry(roots=roots, sessions=sessions)
+    second.register_all(second.discover())
+    reapplied = second.reapply_enablement()
+
+    assert reapplied == []
+    assert "plantcare.advise" not in second.enabled_operations()
+
+
+def test_m3_two_enabled_packs_both_survive_a_restart(roots, sessions):
+    first = CapabilityRegistry(roots=roots, sessions=sessions)
+    first.register_all(first.discover())
+    first.enable("plantcare", "1.0.0")
+    first.enable("bikeservice", "2.1.0")
+
+    second = CapabilityRegistry(roots=roots, sessions=sessions)
+    second.register_all(second.discover())
+    second.reapply_enablement()
+
+    assert set(second.enabled_operations()) == {
+        "plantcare.advise", "bikeservice.schedule"}
+
+
+def test_m3_reapply_before_discovery_finds_nothing_to_enable(roots, sessions):
+    """The entries must exist before enablement can be reapplied to them."""
+    first = CapabilityRegistry(roots=roots, sessions=sessions)
+    first.register_all(first.discover())
+    first.enable("plantcare", "1.0.0")
+
+    second = CapabilityRegistry(roots=roots, sessions=sessions)
+    assert second.reapply_enablement() == []
+
+
+def test_m3_a_registry_with_no_sessions_still_works_exactly_as_before(roots):
+    registry = CapabilityRegistry(roots=roots)
+    registry.register_all(registry.discover())
+    registry.enable("plantcare", "1.0.0")
+    assert set(registry.enabled_operations()) == {"plantcare.advise"}

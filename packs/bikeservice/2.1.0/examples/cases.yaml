@@ -1,0 +1,6 @@
+cases:
+  - name: basic
+    input: {query: hello}
+    mock_model: {answer: 'a mocked answer'}
+    assert:
+      - answer_is_present

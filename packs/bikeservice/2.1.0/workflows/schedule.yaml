@@ -1,0 +1,8 @@
+schema_version: 1
+steps:
+  - id: find
+    operation: vault.search
+    arguments: {query: bike service interval}
+  - id: remind
+    operation: reminder.schedule
+    depends_on: [find]

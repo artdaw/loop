@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
+from typing import Any
 
 import pytest
 
@@ -270,8 +271,8 @@ def test_tr04_a_budget_violation_is_never_silently_dropped():
 # --------------------------------------------------------------------------- #
 # TR05 — venue closures and last admission
 # --------------------------------------------------------------------------- #
-def _museum(**kw) -> OpeningRule:
-    defaults = {"venue": "Pinacoteca",
+def _museum(**kw: Any) -> OpeningRule:
+    defaults: dict[str, Any] = {"venue": "Pinacoteca",
                 "open_weekdays": frozenset({1, 2, 3, 4, 5, 6}),
                 "opens_at": dt.time(9, 0), "closes_at": dt.time(18, 0),
                 "last_admission": dt.time(17, 30)}
@@ -1364,3 +1365,73 @@ def test_tr24_the_same_brief_produces_the_same_ranking_everywhere():
                           generated_at=NOW)
 
     assert [o.id for o in first.options] == [o.id for o in second.options]
+
+
+# --------------------------------------------------------------------------- #
+# M3 — the trip pointer record survives a restart
+# --------------------------------------------------------------------------- #
+def test_m3_a_created_trip_survives_a_fresh_store(sessions):
+    first = TripStore(sessions=sessions)
+    first.create(trip_id="t1", title="Italy", brief=fx.brief())
+
+    second = TripStore(sessions=sessions)
+    trip = second.get("t1")
+    assert trip is not None
+    assert trip.title == "Italy"
+    assert trip.brief.destinations[0].label == "Milan"
+
+
+def test_m3_a_selection_survives_a_restart(sessions):
+    """Which option the owner selected is exactly the fact that must not be
+    forgotten — the authority stakes are real here, unlike the plan content."""
+    first = TripStore(sessions=sessions)
+    first.create(trip_id="t1", title="Italy", brief=fx.brief())
+    option = fx.option("opt-a", checks=[fx.passing_check()])
+    result = build_result([option], fx.brief(), trip_id="t1",
+                          revision_id="rev-1", generated_at=NOW)
+    first.add_revision(revision_id="rev-1", trip_id="t1", result=result,
+                       created_at=NOW, expected_version=1)
+    first.select("t1", expected_version=2, revision_id="rev-1",
+                option_id="opt-a")
+
+    second = TripStore(sessions=sessions)
+    trip = second.get("t1")
+    assert trip.selected_revision_id == "rev-1"
+    assert trip.selected_option_id == "opt-a"
+    assert trip.version == 3
+
+
+def test_m3_expected_version_is_still_enforced_after_a_restart(sessions):
+    """The concurrency control itself must not reset just because the
+    process did."""
+    first = TripStore(sessions=sessions)
+    first.create(trip_id="t1", title="Italy", brief=fx.brief())
+
+    second = TripStore(sessions=sessions)
+    with pytest.raises(Conflict):
+        second.cancel("t1", expected_version=99)
+
+
+def test_m3_cancellation_survives_a_restart(sessions):
+    first = TripStore(sessions=sessions)
+    first.create(trip_id="t1", title="Italy", brief=fx.brief())
+    first.cancel("t1", expected_version=1)
+
+    second = TripStore(sessions=sessions)
+    assert second.get("t1").status is TripStatus.CANCELLED
+
+
+def test_m3_a_brief_revision_survives_a_restart(sessions):
+    first = TripStore(sessions=sessions)
+    first.create(trip_id="t1", title="Italy", brief=fx.brief())
+    first.revise_brief("t1", expected_version=1, changes={"pace": Pace.RELAXED})
+
+    second = TripStore(sessions=sessions)
+    assert second.get("t1").brief.pace is Pace.RELAXED
+    assert second.get("t1").brief.version == 2
+
+
+def test_m3_a_store_with_no_sessions_still_works_exactly_as_before():
+    store = TripStore()
+    trip = store.create(trip_id="t1", title="Italy", brief=fx.brief())
+    assert trip.status is TripStatus.PLANNING

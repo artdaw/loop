@@ -1,0 +1,33 @@
+schema_version: 1
+id: plantcare
+version: "1.0.0"
+title: Plant care
+description: Watering and light guidance grounded in the user's own notes.
+owner_role: daily_life
+policy_namespace: plantcare
+defaults:
+  enabled: false
+  budget_class: interactive
+dependencies:
+  required:
+    - vault.search
+  optional: []
+operations:
+  plantcare.advise:
+    description: Advise on plant care from captured notes.
+    intents:
+      - "how often should I water"
+      - "is this plant getting enough light"
+    mode: agent
+    instructions: instructions.md
+    input_schema: schemas/input.schema.json
+    output_schema: schemas/output.schema.json
+    tools:
+      - vault.search
+    effects:
+      - local_artifact_write
+    destinations: []
+    timeout_seconds: 30
+    retry_policy: none
+    idempotency: root_effect_slot
+    result_artifact_kind: advice

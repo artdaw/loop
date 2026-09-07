@@ -894,3 +894,95 @@ def test_ex14_no_coordinator_branch_names_a_pack():
     source = inspect.getsource(coordinator)
     for pack in ("travel", "weather", "plantcare", "checklist"):
         assert f'"{pack}"' not in source and f"'{pack}'" not in source
+
+
+# --------------------------------------------------------------------------- #
+# M3 — capability objects survive a restart
+# --------------------------------------------------------------------------- #
+def test_m3_a_registered_schema_survives_a_fresh_store(sessions):
+    first = CapabilityObjectStore(sessions=sessions)
+    first.register_schema(_v1())
+
+    second = CapabilityObjectStore(sessions=sessions)
+    assert second.schema("plantcare:plant").schema_version == 1
+
+
+def test_m3_an_object_survives_a_restart(sessions):
+    first = CapabilityObjectStore(sessions=sessions)
+    first.register_schema(_v1())
+    first.create(object_id="p1", pack_id="plantcare", object_type="plant",
+                payload={"name": "fern"})
+
+    second = CapabilityObjectStore(sessions=sessions)
+    assert second.get("p1").payload["name"] == "fern"
+
+
+def test_m3_an_update_survives_a_restart(sessions):
+    first = CapabilityObjectStore(sessions=sessions)
+    first.register_schema(_v1())
+    first.create(object_id="p1", pack_id="plantcare", object_type="plant",
+                payload={"name": "fern"})
+    first.update("p1", expected_version=1, payload={"notes": "thirsty"})
+
+    second = CapabilityObjectStore(sessions=sessions)
+    record = second.get("p1")
+    assert record.payload["notes"] == "thirsty"
+    assert record.version == 2
+
+
+def test_m3_expected_version_still_enforced_after_a_restart(sessions):
+    """The concurrency control itself must not reset just because the
+    process did."""
+    first = CapabilityObjectStore(sessions=sessions)
+    first.register_schema(_v1())
+    first.create(object_id="p1", pack_id="plantcare", object_type="plant",
+                payload={"name": "fern"})
+    first.update("p1", expected_version=1, payload={"notes": "thirsty"})
+
+    second = CapabilityObjectStore(sessions=sessions)
+    with pytest.raises(Conflict):
+        second.update("p1", expected_version=1, payload={"notes": "fine"})
+
+
+def test_m3_a_breaking_schema_version_survives_a_restart(sessions):
+    first = CapabilityObjectStore(sessions=sessions)
+    first.register_schema(_v1())
+    breaking = ObjectSchema(pack_id="plantcare", object_type="plant",
+                            schema_version=2,
+                            required=frozenset({"name", "species"}),
+                            properties={"name": "string", "notes": "string",
+                                        "species": "string"})
+    first.register_schema(breaking, migration="add species",
+                          authority_event_id="e1")
+
+    second = CapabilityObjectStore(sessions=sessions)
+    assert second.schema("plantcare:plant").schema_version == 2
+    with pytest.raises(InvalidInput, match="immutable"):
+        second.register_schema(_v1())
+
+
+def test_m3_a_rollback_survives_a_restart(sessions):
+    first = CapabilityObjectStore(sessions=sessions)
+    first.register_schema(_v1())
+    first.create(object_id="p1", pack_id="plantcare", object_type="plant",
+                payload={"name": "fern"})
+    breaking = ObjectSchema(pack_id="plantcare", object_type="plant",
+                            schema_version=2,
+                            required=frozenset({"name", "species"}),
+                            properties={"name": "string", "notes": "string",
+                                        "species": "string"})
+    first.register_schema(breaking, migration="add species",
+                          authority_event_id="e1")
+    rollback_schema(first, "plantcare:plant", to_version=1)
+
+    second = CapabilityObjectStore(sessions=sessions)
+    assert second.schema("plantcare:plant").schema_version == 1
+    assert second.get("p1").payload["name"] == "fern"
+
+
+def test_m3_a_store_with_no_sessions_still_works_exactly_as_before():
+    store = CapabilityObjectStore()
+    store.register_schema(_v1())
+    record = store.create(object_id="p1", pack_id="plantcare",
+                          object_type="plant", payload={"name": "fern"})
+    assert record.schema_version == 1

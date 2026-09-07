@@ -267,6 +267,43 @@ def _r0003_extension_state(conn: Connection) -> None:
         )"""))
 
 
+def _r0004_trips(conn: Connection) -> None:
+    """The trip record's authority pointers (travel §6).
+
+    Only the pointers and the brief are stored here — `current_revision_id`,
+    `selected_revision_id`/`selected_option_id`, `status`, `version`. These
+    are the facts with real concurrency-control stakes: which option the
+    owner actually selected must survive a restart, and `version` is what
+    `expected_version` checks against.
+
+    A revision's full itinerary content (segments, costs, schedule detail) is
+    deliberately **not** given a matching table here. It has no existing
+    serializer, the nested types include raw datetimes, and inventing a lossy
+    round trip would be worse than an honest gap: a `Revision` read back
+    missing fields other code expects is a silent wrong-shape bug, not a
+    missing feature. This mirrors the coordinator's own choice not to
+    checkpoint its parsed plan object (agent-stack §4) — recompute or
+    re-supply the rich object; persist only the pointer that must not be
+    forgotten.
+    """
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS trips (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            brief_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            current_revision_id TEXT NOT NULL DEFAULT '',
+            selected_revision_id TEXT NOT NULL DEFAULT '',
+            selected_option_id TEXT NOT NULL DEFAULT '',
+            monitoring_routine_id TEXT NOT NULL DEFAULT '',
+            project_ref TEXT NOT NULL DEFAULT '',
+            needs_review INTEGER NOT NULL DEFAULT 0,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )"""))
+
+
 #: Ordered revisions. Append only; never edit a shipped entry.
 REVISIONS: tuple[Revision, ...] = (
     Revision("0000_rename_legacy", "move colliding Phase 4 tables aside",
@@ -276,6 +313,7 @@ REVISIONS: tuple[Revision, ...] = (
              _r0002_legacy_provenance),
     Revision("0003_extension_state", "persist routines, preferences, capability "
              "objects, spend and notification state", _r0003_extension_state),
+    Revision("0004_trips", "trip authority pointers", _r0004_trips),
 )
 
 HEAD = REVISIONS[-1].id
