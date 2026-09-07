@@ -20,13 +20,13 @@ A green test count is not coverage: a row is `verified` only when its named test
 | A | 3. Time, durability and delivery | 17 | 16 | 1 | 0 |
 | B | 4. Knowledge and vault fidelity | 32 | 32 | 0 | 0 |
 | C | 5. Team coordination, privacy and control | 23 | 21 | 2 | 0 |
-| D | 6. Proactivity and learning | 21 | 17 | 4 | 0 |
+| D | 6. Proactivity and learning | 21 | 18 | 3 | 0 |
 | E | 7. Travel itinerary capability | 24 | 19 | 5 | 0 |
 | D | 8. Weather from multiple sources | 24 | 23 | 1 | 0 |
 | C | 9. Capability extensibility | 14 | 13 | 1 | 0 |
 | E | 10. Build, migration, operations and release | 14 | 9 | 5 | 0 |
 | C/E | 11. Standard agent stack | 12 | 12 | 0 | 0 |
-| — | **Total** | **196** | **177** | **19** | **0** |
+| — | **Total** | **196** | **178** | **18** | **0** |
 
 
 ## 2. Commitments and everyday interaction
@@ -154,7 +154,7 @@ Stage **D** · planned milestones **D1–D4, E1**
 | P02 | Same request lacks location | Saved inactive proposal and one question; timezone not used as guessed location | D2 | `loop/runtime/routines.py` | `test_routines_notify.py::test_p02_*` | verified |
 | P03 | Fresh forecast shows 60% rain during horizon | Practical rain advice with time/source; exact configured occurrence count | D1/D3 | `loop/services/observations.py` | `test_observations_health.py::test_p03_*` | verified |
 | P04 | Forecast unavailable/stale | Availability warning, no confident “no rain”; stale weather cannot satisfy predicate | D1/D3 | `loop/services/observations.py` | `test_observations_health.py::test_p04_*` | verified |
-| P05 | Condition remains true through repeated sensor updates | One edge/occurrence notification until rearm or authorized next occurrence | D1/D3 | `loop/services/observations.py` | `test_observations_health.py::test_p05_*` | implemented |
+| P05 | Condition remains true through repeated sensor updates | One edge/occurrence notification until rearm or authorized next occurrence | D1/D3 | `loop/runtime/condition_dispatch.py + loop/services/observations.py` | `test_observations_health.py::test_p05_*`, `test_condition_routines_e2e.py::test_staying_true_does_not_fire_again`, `test_condition_routines_e2e.py::test_a_restart_does_not_re_announce_a_condition_still_true` | verified |
 | P06 | Discretionary candidate during quiet hours/over cap | Deferred to digest or expired; not silently promoted to urgent | D4 | `loop/runtime/notify_policy.py` | `test_routines_notify.py::test_p06_*` | verified |
 | P07 | Explicit timed reminder during quiet hours | Delivered at requested time under explicit authority | D4 | `loop/runtime/notify_policy.py` | `test_routines_notify.py::test_p07_*`, `test_routine_weather_e2e.py::test_a_routine_the_owner_timed_themselves_is_delivered_in_quiet_hours` | verified |
 | P08 | “Working from home today” | Expiring override suppresses commute-scoped routine only; next day normal policy resu… | D1/D3 | `loop/services/observations.py` | `test_observations_health.py::test_p08_*` | verified |

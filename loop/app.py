@@ -58,6 +58,10 @@ from loop.core.clock import Clock, SystemClock
 from loop.core.settings import Settings
 from loop.db.migrations import migrate
 from loop.db.session import create_db_engine, session_factory
+from loop.runtime.condition_dispatch import (
+    ConditionDispatcher,
+    ConditionEdges,
+)
 from loop.runtime.coordinator_worker import CoordinatorJobWorker
 from loop.runtime.intake import EventIntake
 from loop.runtime.jobs import JobQueue
@@ -89,6 +93,7 @@ from loop.services.feedback import (
 from loop.services.knowledge import KnowledgeService
 from loop.services.learning import PreferenceStore
 from loop.services.messages import MessageService, PendingClarifications
+from loop.services.observations import ObservationStore
 from loop.services.reminders import ReminderService
 from loop.services.tasks import TaskService
 from loop.vault.gateway import VaultGateway
@@ -127,6 +132,8 @@ class Application:
     feedback: FeedbackService
     messages: MessageService
     actions: CallbackActions
+    observations: ObservationStore
+    conditions: ConditionDispatcher
     registry: CapabilityRegistry
     artifacts: ArtifactStore
     invoker: CapabilityInvoker
@@ -256,6 +263,15 @@ def build_application(settings: Settings | None = None, *,
         notifications=notifications, clock=clock,
         default_destination=settings.telegram_chat_id)
 
+    # Condition routines fire on the edge, and the edge is stored: a restart
+    # that forgot it would turn "still true" into "newly true" and announce
+    # the same condition again on every deploy (P05).
+    observations = ObservationStore(sessions=sessions, clock=clock)
+    conditions = ConditionDispatcher(
+        routines=routines, observations=observations,
+        edges=ConditionEdges(sessions=sessions, clock=clock), jobs=jobs,
+        clock=clock)
+
     # Buttons on a delivered reminder carry opaque ids; everything they need
     # is looked up here rather than encoded in the callback (interfaces §2).
     actions = CallbackActions(sessions=sessions, clock=clock)
@@ -313,7 +329,8 @@ def build_application(settings: Settings | None = None, *,
         vault_search=vault_search, knowledge=knowledge,
         routine_scheduler=routine_scheduler, routine_worker=routine_worker,
         trip_monitor=trip_monitor, feedback=feedback, messages=messages,
-        actions=actions,
+        actions=actions, observations=observations,
+        conditions=conditions,
         registry=registry, artifacts=artifacts,
         invoker=invoker, roles=roles, operations=operations, runs=runs,
         coordinator=coordinator, service=service,

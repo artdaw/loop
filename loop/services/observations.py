@@ -155,7 +155,12 @@ class ObservationStore:
                 "valid_from, expires_at, confidence, privacy, supersedes "
                 "FROM observations WHERE key = :key AND subject_ref = :subject "
                 "AND (expires_at IS NULL OR expires_at > :now) "
-                "ORDER BY valid_from DESC LIMIT 1"),
+                # `rowid` breaks the tie: two observations recorded in the
+                # same microsecond otherwise come back in arbitrary order, and
+                # the *older* value winning is how a sensor update silently
+                # fails to take effect. Insertion order is the intuitive
+                # meaning of "freshest" when the timestamps are equal.
+                "ORDER BY valid_from DESC, rowid DESC LIMIT 1"),
                 {"key": key, "subject": subject_ref, "now": now}).first()
         if row is None:
             return None

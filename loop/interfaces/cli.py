@@ -260,8 +260,12 @@ def run_once(sweep_only: bool = typer.Option(
     reports = application.service.run_once()
     fired = sum(r.triggers_fired for r in reports)
 
+    # Conditions are evaluated in the deterministic half: a predicate over
+    # stored observations reaches no model, so it belongs with the sweep
+    # rather than with the work the sweep queues.
+    conditions = [] if sweep_only else application.conditions.sweep()
     outcomes = [] if sweep_only else application.routine_worker.run_due()
-    if outcomes:
+    if outcomes or any(outcome.fired for outcome in conditions):
         reports.extend(application.service.run_once())
 
     sent = sum(r.notifications_sent for r in reports)
@@ -269,6 +273,12 @@ def run_once(sweep_only: bool = typer.Option(
     typer.echo(f"{len(reports)} sweep(s); {fired} trigger(s) fired; "
               f"{len(outcomes)} routine(s) run; {sent} notification(s) sent"
               + (f"; {failed} undeliverable" if failed else ""))
+    for condition in conditions:
+        if condition.fired:
+            typer.echo(f"  {condition.slug}: condition became true")
+        elif condition.missing:
+            typer.echo(f"  {condition.slug}: unknown — no fresh observation "
+                       f"for {', '.join(condition.missing)}")
     for outcome in outcomes:
         typer.echo(f"  {outcome.slug}: {outcome.decision or outcome.state}"
                    + (f" — {outcome.reason}" if outcome.reason else "")
@@ -300,6 +310,7 @@ async def _run_daemon(interval_seconds: float) -> None:
         try:
             while not stopping.is_set():
                 application.service.run_once()
+                application.conditions.sweep()
                 application.routine_worker.run_due()
                 while await coordinator_worker.run_one() is not None:
                     pass
