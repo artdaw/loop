@@ -16,7 +16,7 @@ A green test count is not coverage: a row is `verified` only when its named test
 
 | Stage | Section | Scenarios | verified | implemented | pending |
 |---|---|---:|---:|---:|---:|
-| A | 2. Commitments and everyday interaction | 15 | 9 | 6 | 0 |
+| A | 2. Commitments and everyday interaction | 15 | 13 | 2 | 0 |
 | A | 3. Time, durability and delivery | 17 | 16 | 1 | 0 |
 | B | 4. Knowledge and vault fidelity | 32 | 32 | 0 | 0 |
 | C | 5. Team coordination, privacy and control | 23 | 21 | 2 | 0 |
@@ -26,7 +26,7 @@ A green test count is not coverage: a row is `verified` only when its named test
 | C | 9. Capability extensibility | 14 | 13 | 1 | 0 |
 | E | 10. Build, migration, operations and release | 14 | 9 | 5 | 0 |
 | C/E | 11. Standard agent stack | 12 | 12 | 0 | 0 |
-| — | **Total** | **196** | **171** | **25** | **0** |
+| — | **Total** | **196** | **175** | **21** | **0** |
 
 
 ## 2. Commitments and everyday interaction
@@ -38,10 +38,10 @@ Stage **A** · planned milestones **A3–A4, A7**
 | T01 | At 2026-09-05 09:00 Europe/Berlin, “Remind me tomorrow at 9 to call the repai… | One ready task, one trigger for 2026-09-06T07:00:00Z; reply includes local date/time… | A9 | `loop/services/reminders.py + loop/runtime/reminder_dispatch.py` | `test_stage_a_e2e.py::test_t01_*`, `test_release_e2e.py::test_task_restart_reminder_*` | verified |
 | T02 | Replay the same Telegram update 3 times | Same accepted result, one task/trigger, one user acknowledgement occurrence | A3 | `loop/runtime/intake.py` | `test_intake.py::test_t02_*`, `test_telegram.py::test_a_redelivered_update_is_not_processed_twice` | verified |
 | T03 | “Find a better approach to insurance” without timing | Task retained without invented due date; no unrequested timer | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t03_*` | verified |
-| T04 | “Remind me later to call” | Task saved, plan needs_input, one timing question, no false scheduled claim | E9 | `loop/runtime/interpret.py` | `test_remaining.py::test_t04_*` | implemented |
-| T05 | Answer T04 with “tomorrow at 10” | Same task gains trigger; clarification resolves; no duplicate task | E9 | `loop/runtime/interpret.py` | `test_remaining.py::test_t05_*` | implemented |
-| T06 | “Remember to call” versus “remember that production takes six weeks” | First is task intent; second is exact knowledge capture; unresolved reminder time sta… | E9 | `loop/runtime/interpret.py` | `test_remaining.py::test_t06_*` | implemented |
-| T07 | “Remember this fact and remind me Friday at 10 to verify it” on a non-Friday | Separate capture and linked task; each has its own truthful result | E9 | `loop/runtime/interpret.py` | `test_remaining.py::test_t07_*` | implemented |
+| T04 | “Remind me later to call” | Task saved, plan needs_input, one timing question, no false scheduled claim | E9 | `loop/services/messages.py + loop/runtime/interpret.py` | `test_remaining.py::test_t04_*`, `test_messages_e2e.py::test_a_vague_time_never_claims_a_reminder_is_set` | verified |
+| T05 | Answer T04 with “tomorrow at 10” | Same task gains trigger; clarification resolves; no duplicate task | E9 | `loop/services/messages.py + loop/services/reminders.py` | `test_remaining.py::test_t05_*`, `test_messages_e2e.py::test_an_answer_completes_the_waiting_task_rather_than_making_another`, `test_messages_e2e.py::test_the_pending_question_survives_a_restart` | verified |
+| T06 | “Remember to call” versus “remember that production takes six weeks” | First is task intent; second is exact knowledge capture; unresolved reminder time sta… | E9 | `loop/services/messages.py + loop/runtime/interpret.py` | `test_remaining.py::test_t06_*`, `test_messages_e2e.py::test_remember_to_is_a_task_and_remember_that_is_knowledge` | verified |
+| T07 | “Remember this fact and remind me Friday at 10 to verify it” on a non-Friday | Separate capture and linked task; each has its own truthful result | E9 | `loop/services/messages.py + loop/runtime/interpret.py` | `test_remaining.py::test_t07_*`, `test_messages_e2e.py::test_a_fact_and_a_reminder_each_get_their_own_truthful_result` | verified |
 | T08 | Complete a task before its reminder sends | Task done and pending firing/notification cancelled atomically; outbox preflight prev… | A7 | `loop/services/reminders.py + loop/runtime/outbox.py` | `test_stage_a_e2e.py::test_t08_*`, `test_outbox.py::test_t08_*`, `test_release_e2e.py::test_completion_*` | verified |
 | T09 | Snooze a delivered reminder by 1 hour, replay button | One replacement occurrence at requested time; one feedback record; task remains open | A9 | `loop/runtime/triggers.py` | `test_stage_a_e2e.py::test_t09_*` | implemented |
 | T10 | Dismiss a reminder | Notification suppressed, task not completed | A9 | `loop/runtime/outbox.py` | `test_stage_a_e2e.py::test_t10_*` | implemented |

@@ -87,6 +87,7 @@ from loop.services.feedback import (
 )
 from loop.services.knowledge import KnowledgeService
 from loop.services.learning import PreferenceStore
+from loop.services.messages import MessageService, PendingClarifications
 from loop.services.reminders import ReminderService
 from loop.services.tasks import TaskService
 from loop.vault.gateway import VaultGateway
@@ -123,6 +124,7 @@ class Application:
     routine_worker: RoutineJobWorker
     trip_monitor: TripMonitorScheduler
     feedback: FeedbackService
+    messages: MessageService
     registry: CapabilityRegistry
     artifacts: ArtifactStore
     invoker: CapabilityInvoker
@@ -252,6 +254,14 @@ def build_application(settings: Settings | None = None, *,
         notifications=notifications, clock=clock,
         default_destination=settings.telegram_chat_id)
 
+    # Free text reaches the same services an explicit command does, so
+    # "remind me tomorrow at 9" and `task add` cannot disagree about what a
+    # task is (T04-T07).
+    messages = MessageService(
+        tasks=tasks, reminders=reminders,
+        pending=PendingClarifications(sessions=sessions, clock=clock),
+        knowledge=knowledge, clock=clock, timezone=settings.timezone)
+
     # Learning writes its records where the owner can read and delete them.
     # With no vault configured the loop still works in SQLite; what is lost is
     # the owner's ability to inspect and correct it by hand (vault §9), which
@@ -294,7 +304,7 @@ def build_application(settings: Settings | None = None, *,
         notifications=notifications, weather=weather_service,
         vault_search=vault_search, knowledge=knowledge,
         routine_scheduler=routine_scheduler, routine_worker=routine_worker,
-        trip_monitor=trip_monitor, feedback=feedback,
+        trip_monitor=trip_monitor, feedback=feedback, messages=messages,
         registry=registry, artifacts=artifacts,
         invoker=invoker, roles=roles, operations=operations, runs=runs,
         coordinator=coordinator, service=service,

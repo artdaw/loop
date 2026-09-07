@@ -53,6 +53,23 @@ class ReminderService:
             session.commit()
         return ScheduledReminder(task=task, trigger=trigger)
 
+    def attach(self, task_id: str, *, instant: dt.datetime, timezone: str,
+               original_local: str | None = None,
+               privacy: PrivacyLabel | None = None) -> Trigger:
+        """Give an *existing* task its reminder (T05).
+
+        The answer to "when?" belongs to the task already saved, not to a new
+        one. Creating a second task here is how one errand becomes two
+        entries, with the duplicate outliving the correction.
+        """
+        with self._sessions() as session:
+            trigger = self.triggers.create_at(
+                subject_type="task", subject_id=task_id, instant=instant,
+                timezone=timezone, original_local=original_local,
+                privacy=privacy, session=session)
+            session.commit()
+        return trigger
+
     def complete(self, task_id: str, *, expected_version: int) -> Task:
         """Complete a task and suppress every unsent reminder atomically."""
         with self._sessions() as session:

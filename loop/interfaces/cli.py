@@ -537,6 +537,26 @@ def learning_snooze(subject: str, minutes: int,
     typer.echo("recorded" if recorded else "already recorded")
 
 
+@app.command("say")
+def say(message: str) -> None:
+    """Send Loop an ordinary sentence and act on what it means (T04-T07).
+
+    The same path the Telegram bot uses for non-command text, so a reminder
+    asked for in a chat and one asked for here cannot behave differently.
+    """
+    application = _app()
+    try:
+        outcome = application.messages.handle(message)
+    except LoopError as exc:
+        _fail(exc)
+        return
+    typer.echo(outcome.reply)
+    if outcome.task_id:
+        typer.echo(f"task: {outcome.task_id}")
+    if outcome.capture_path:
+        typer.echo(f"capture: {outcome.capture_path}")
+
+
 # --------------------------------------------------------------------------- #
 # Generic capability invocation (agent-stack §2: no new command per pack)
 # --------------------------------------------------------------------------- #

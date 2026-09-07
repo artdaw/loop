@@ -158,6 +158,13 @@ class LoopTelegramBot:
         parts = text.strip().split(maxsplit=1)
         if not parts:
             return ""
+        if not parts[0].startswith("/"):
+            # Ordinary sentences are the normal way to talk to an assistant.
+            # They reach the same services the commands do, so "remind me
+            # tomorrow at 9" and `/task` cannot disagree about what a task is.
+            return self.application.messages.handle(
+                text.strip(), actor=str(self.application.settings.telegram_user_id)
+            ).reply
         command = parts[0].lstrip("/").lower()
         rest = parts[1] if len(parts) > 1 else ""
         handler = _COMMANDS.get(command)

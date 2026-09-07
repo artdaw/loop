@@ -416,6 +416,32 @@ def invoke_capability(operation: str, payload: InvokeOperation,
     return _ok(result.response)
 
 
+class SendMessage(BaseModel):
+    text: str
+    actor: str = "owner"
+
+
+@app.post("/api/v1/messages", dependencies=router_dependencies, status_code=201)
+def send_message(payload: SendMessage,
+                 application: Application = Depends(get_application),
+                 idempotency_key: str | None = Header(
+                     default=None, alias="Idempotency-Key")) -> JSONResponse:
+    """Free text, interpreted and acted on — the same path the bot uses."""
+    def act() -> tuple[int, dict[str, Any]]:
+        outcome = application.messages.handle(payload.text, actor=payload.actor)
+        return 201, {
+            "reply": outcome.reply,
+            "task_id": outcome.task_id or None,
+            "capture_path": outcome.capture_path or None,
+            "scheduled_for": (outcome.scheduled_for.isoformat()
+                              if outcome.scheduled_for else None),
+            "awaiting_answer": outcome.awaiting_answer,
+            "questions": outcome.questions,
+        }
+
+    return idempotent(application, idempotency_key, payload.model_dump(), act)
+
+
 # --------------------------------------------------------------------------- #
 # HTML forms (O07)
 # --------------------------------------------------------------------------- #
