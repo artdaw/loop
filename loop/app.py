@@ -64,6 +64,7 @@ from loop.runtime.jobs import JobQueue
 from loop.runtime.notify_policy import NotificationManager, NotificationPolicy
 from loop.runtime.operations import OperationLedger
 from loop.runtime.outbox import NotificationOutbox, Transport
+from loop.runtime.reminder_dispatch import TaskReminderDispatcher
 from loop.runtime.routine_dispatch import (
     RoutineDispatcher,
     RoutineJobWorker,
@@ -86,6 +87,7 @@ from loop.services.feedback import (
 )
 from loop.services.knowledge import KnowledgeService
 from loop.services.learning import PreferenceStore
+from loop.services.reminders import ReminderService
 from loop.services.tasks import TaskService
 from loop.vault.gateway import VaultGateway
 from loop.vault.search import VaultSearch
@@ -102,6 +104,7 @@ class Application:
     sessions: sessionmaker[Session]
     model_gateway: ModelGateway
     tasks: TaskService
+    reminders: ReminderService
     triggers: TriggerService
     jobs: JobQueue
     outbox: NotificationOutbox
@@ -180,8 +183,17 @@ def build_application(settings: Settings | None = None, *,
     # No transport is registered by default: an unconfigured channel must
     # fail as unavailable rather than silently look delivered. An interface
     # that owns a real channel supplies it here.
+    def _task_is_current(notification) -> bool:
+        if not notification.subject_ref.startswith("task:"):
+            return True
+        task = tasks.get(notification.subject_ref.removeprefix("task:"))
+        return task is not None and task.is_open
+
     outbox = NotificationOutbox(sessions=sessions, clock=clock,
-                                transports=transports or {})
+                                transports=transports or {},
+                                preflight=_task_is_current)
+    reminders = ReminderService(sessions=sessions, tasks=tasks,
+                                triggers=triggers, outbox=outbox)
     intake = EventIntake(sessions=sessions, settings=settings, clock=clock)
     operations = OperationLedger(sessions=sessions, clock=clock)
     runs = RunStore(sessions=sessions, clock=clock)
@@ -255,6 +267,8 @@ def build_application(settings: Settings | None = None, *,
     trip_monitor = TripMonitorScheduler(triggers=triggers, sessions=sessions,
                                         clock=clock)
     dispatchers = CompositeTriggerDispatcher([
+        TaskReminderDispatcher(tasks=tasks, outbox=outbox,
+                               destination_id=settings.telegram_chat_id),
         routine_dispatcher,
         TripCheckDispatcher(jobs=jobs, scheduler=trip_monitor)])
 
@@ -272,7 +286,8 @@ def build_application(settings: Settings | None = None, *,
 
     return Application(
         settings=settings, clock=clock, sessions=sessions,
-        model_gateway=model_gateway, tasks=tasks, triggers=triggers,
+        model_gateway=model_gateway, tasks=tasks, reminders=reminders,
+        triggers=triggers,
         jobs=jobs, outbox=outbox, intake=intake, routines=routines,
         preferences=preferences, trips=trips,
         capability_objects=capability_objects, export_map=export_map,

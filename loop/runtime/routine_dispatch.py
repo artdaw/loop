@@ -39,6 +39,8 @@ import logging
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from sqlalchemy.orm import Session
+
 from loop.ai.budget import BudgetLimits, RootBudget
 from loop.capabilities.runners import CapabilityInvoker
 from loop.core.clock import Clock, SystemClock, from_micros, to_micros
@@ -243,7 +245,8 @@ class RoutineDispatcher:
         self.routines = routines
 
     def __call__(self, trigger: Any, decision: str,
-                 occurrence_key: str) -> str | None:
+                 occurrence_key: str,
+                 session: Session | None = None) -> str | None:
         if getattr(trigger, "subject_type", "") != ROUTINE_SUBJECT:
             return None
         slug = str(trigger.subject_id)
@@ -262,7 +265,8 @@ class RoutineDispatcher:
             ROUTINE_KIND,
             dedupe_key=f"{ROUTINE_KIND}:{slug}:{occurrence_key}",
             payload={"slug": slug, "occurrence_key": occurrence_key,
-                     "catch_up": decision, "trigger_id": trigger.id})
+                     "catch_up": decision, "trigger_id": trigger.id},
+            session=session)
 
 
 @dataclass

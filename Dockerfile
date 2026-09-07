@@ -29,7 +29,7 @@ RUN mkdir -p /app/data && chown -R loop:loop /app
 
 USER loop
 
-# Default: run the orchestrator daemon. Override for the CLI or web UI.
-#   docker compose run --rm app loop status
+# Default: run the durable vNext scheduler and workers. Override for CLI/API.
+#   docker compose run --rm app loop-next status
 #   uvicorn web.main:app --host 0.0.0.0 --port 8000
-CMD ["loop", "telegram"]
+CMD ["loop-next", "run", "daemon"]

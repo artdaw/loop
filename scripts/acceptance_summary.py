@@ -15,6 +15,7 @@ wrong total is worse than none: it reads as coverage that does not exist.
 
 from __future__ import annotations
 
+import argparse
 import pathlib
 import re
 import sys
@@ -30,6 +31,11 @@ SUMMARY = re.compile(r"^\| ([A-Z/—]+) \| (.+?) \| (\d+) \| \d+ \| \d+ \| \d+ \
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--check", action="store_true",
+        help="fail when the checked-in summary differs; do not rewrite it")
+    args = parser.parse_args()
     text = MATRIX.read_text()
     section: str | None = None
     tally: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -73,7 +79,13 @@ def main() -> int:
         else:
             out.append(line)
 
-    MATRIX.write_text("\n".join(out) + "\n")
+    rendered = "\n".join(out) + "\n"
+    if args.check and rendered != text:
+        print("ERROR: acceptance summary is stale; run acceptance_summary.py",
+              file=sys.stderr)
+        return 1
+    if not args.check:
+        MATRIX.write_text(rendered)
     verified = sum(t.get("verified", 0) for t in tally.values())
     implemented = sum(t.get("implemented", 0) for t in tally.values())
     print(f"{expected} scenarios: {verified} verified, {implemented} implemented, "

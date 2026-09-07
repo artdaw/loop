@@ -798,3 +798,72 @@ def test_with_no_feed_configured_the_briefing_says_none_was_checked(
     outcome = app.routine_worker.run_one()
 
     assert "no warning feed was checked" in outcome.message.lower()
+
+
+# --------------------------------------------------------------------------- #
+# Delivery truth at the application level (D06, P07 — M7 re-audit)
+# --------------------------------------------------------------------------- #
+def test_an_uncertain_send_is_never_blindly_resent(settings, clock,
+                                                   weather_transport):
+    """D06 at the application level, not just the outbox unit.
+
+    The provider accepted the message and the client never saw the receipt, so
+    whether it arrived is genuinely unknown. Resending would risk a second
+    briefing; marking it sent would claim a delivery nobody observed. The only
+    honest state is `unknown`, and it must survive further sweeps untouched.
+    """
+    from loop.runtime.outbox import SendResult
+
+    uncertain = FakeTransport(default=SendResult(status="unknown"))
+    app = make_app(settings, clock, weather_transport, uncertain)
+    activate_morning_weather(app)
+    clock.set(FIRES_AT)
+    app.service.tick()
+    app.routine_worker.run_one()
+
+    first = app.service.tick()
+
+    assert first.unknown_sends == 1
+    assert first.notifications_sent == 0
+    assert len(uncertain.sent) == 1
+
+    # Any number of later sweeps must not try again.
+    for _ in range(3):
+        clock.advance(hours=1)
+        report = app.service.tick()
+        assert report.notifications_sent == 0
+    assert len(uncertain.sent) == 1, "an uncertain send was retried blindly"
+    assert app.service.pending_summary()["unknown"] == 1
+
+
+#: 2026-09-05 21:00 UTC is 23:00 in Berlin — inside quiet hours.
+QUIET_HOUR_ROUTINE = MORNING_WEATHER.replace('at: "07:00"', 'at: "23:00"')
+
+
+def test_a_routine_the_owner_timed_themselves_is_delivered_in_quiet_hours(
+        settings, clock, weather_transport, sends):
+    """P07: explicit authority over the *time*, not merely over the trigger.
+
+    The complement of the discretionary case above. The owner asked for this
+    message at this hour, so quiet hours do not silence it — suppressing a
+    requested delivery would be the failure here, exactly as delivering an
+    unrequested one at 23:00 is in the other test.
+    """
+    app = make_app(settings, clock,
+                   RecordedTransport(hourly_payload(int(QUIET_FIRE.timestamp()))),
+                   sends)
+    routine, problems = parse_routine(
+        QUIET_HOUR_ROUTINE, known_capabilities=app.known_capabilities())
+    assert problems == []
+    app.routines.save(routine)
+    app.routine_scheduler.activate("morning-weather",
+                                   activation_event_id="evt-activation")
+    clock.set(QUIET_FIRE)
+    app.service.tick()
+
+    outcome = app.routine_worker.run_one()
+
+    assert outcome.decision == Decision.SEND.value
+    assert "explicit authority" in outcome.reason
+    assert app.service.tick().notifications_sent == 1
+    assert len(sends.sent) == 1

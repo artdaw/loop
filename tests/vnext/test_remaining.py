@@ -432,10 +432,14 @@ def test_d14_the_reclaiming_worker_gets_a_new_fencing_token(sessions, clock):
 
 
 def test_d14_a_backup_manifest_records_pending_work(tmp_path):
+    import sqlite3
+
     from loop.ops.backup import create_backup, read_manifest
 
     database = tmp_path / "loop.db"
-    database.write_bytes(b"SQLite format 3\x00")
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE pending (id TEXT)")
+        connection.commit()
     create_backup(database=database, vault=tmp_path / "absent", journal=None,
                   destination=tmp_path / "backup", created_at=NOW,
                   schema_revision="0002", pending_jobs=2, pending_outbox=1)

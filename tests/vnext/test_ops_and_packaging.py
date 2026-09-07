@@ -8,6 +8,7 @@ covers the behaviour those builds are meant to protect.
 from __future__ import annotations
 
 import json
+import sqlite3
 import tomllib
 from pathlib import Path
 
@@ -141,6 +142,10 @@ def test_o03_no_secret_is_baked_into_the_image():
 def test_o03_the_data_directory_is_owned_by_the_run_user():
     body = _dockerfile()
     assert "chown" in body
+
+
+def test_o03_the_default_command_runs_the_durable_stack():
+    assert 'CMD ["loop-next", "run", "daemon"]' in _dockerfile()
 
 
 # --------------------------------------------------------------------------- #
@@ -387,7 +392,10 @@ def test_o08_a_conflict_leaves_the_object_unchanged(service):
 # --------------------------------------------------------------------------- #
 def _make_source(tmp_path: Path) -> tuple[Path, Path, Path]:
     database = tmp_path / "loop.db"
-    database.write_bytes(b"SQLite format 3\x00 pretend database")
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE pending (id TEXT PRIMARY KEY)")
+        connection.execute("INSERT INTO pending VALUES ('op-1')")
+        connection.commit()
     vault = tmp_path / "vault"
     (vault / "1-wiki").mkdir(parents=True)
     (vault / "1-wiki" / "note.md").write_text("a human wrote this")
@@ -454,7 +462,8 @@ def test_o09_a_restore_reproduces_the_content(tmp_path):
 
     result = restore_backup(tmp_path / "backup", target=tmp_path / "restored")
 
-    assert result.database.read_bytes() == database.read_bytes()
+    with sqlite3.connect(result.database) as connection:
+        assert connection.execute("SELECT id FROM pending").fetchall() == [("op-1",)]
     assert (result.vault / "1-wiki" / "note.md").read_text() \
         == "a human wrote this"
 

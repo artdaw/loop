@@ -16,15 +16,17 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from loop.core.ids import content_hash
+from loop.runtime.runs import secure_checkpoint_file
 
 logger = logging.getLogger(__name__)
 
 MANIFEST_NAME = "loop-backup.json"
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 
 
 @dataclass
@@ -109,11 +111,34 @@ def _tree_hash(root: Path) -> tuple[str, int]:
     return content_hash("\n".join(digest_input)), total
 
 
+def _snapshot_database(source: Path, destination: Path) -> bytes:
+    """Copy a live SQLite database with SQLite's consistent backup API.
+
+    The legacy unit fixtures use marker bytes rather than SQLite files; those
+    remain byte-copied so older backup formats stay testable.  Production
+    databases and LangGraph checkpoints always take the transactional path,
+    which includes committed WAL content instead of copying only the main file.
+    """
+    if source.read_bytes()[:16] != b"SQLite format 3\x00":
+        shutil.copy2(source, destination)
+        return destination.read_bytes()
+
+    source_uri = f"file:{source.resolve()}?mode=ro"
+    with (sqlite3.connect(source_uri, uri=True) as source_db,
+          sqlite3.connect(destination) as destination_db):
+        source_db.backup(destination_db)
+    return destination.read_bytes()
+
+
 def create_backup(*, database: Path, vault: Path, journal: Path | None,
                   destination: Path, created_at: int,
                   schema_revision: str, pending_jobs: int = 0,
-                  pending_outbox: int = 0) -> BackupManifest:
-    """Write a coordinated backup of database, vault and journal (O09)."""
+                  pending_outbox: int = 0,
+                  checkpoints: Path | None = None) -> BackupManifest:
+    """Write one verifiable domain/checkpoint/vault backup (O09/LG11)."""
+    if destination.exists() and any(destination.iterdir()):
+        raise BackupError(
+            f"backup destination {destination} is not empty; use a fresh directory")
     destination.mkdir(parents=True, exist_ok=True)
     manifest = BackupManifest(version=MANIFEST_VERSION, created_at=created_at,
                               schema_revision=schema_revision,
@@ -122,10 +147,17 @@ def create_backup(*, database: Path, vault: Path, journal: Path | None,
 
     if not database.exists():
         raise BackupError(f"database not found: {database}")
-    db_bytes = database.read_bytes()
-    (destination / "loop.db").write_bytes(db_bytes)
+    db_bytes = _snapshot_database(database, destination / "loop.db")
     manifest.parts.append(BackupPart("database", "loop.db",
                                      content_hash(db_bytes), len(db_bytes)))
+
+    if checkpoints is not None and checkpoints.exists():
+        checkpoint_target = destination / "graph-checkpoints.sqlite"
+        checkpoint_bytes = _snapshot_database(checkpoints, checkpoint_target)
+        secure_checkpoint_file(checkpoint_target)
+        manifest.parts.append(BackupPart(
+            "checkpoints", checkpoint_target.name,
+            content_hash(checkpoint_bytes), len(checkpoint_bytes)))
 
     if vault.exists():
         _copy_tree(vault, destination / "vault")
@@ -173,6 +205,7 @@ def verify_backup(backup_dir: Path) -> list[str]:
 @dataclass
 class RestoreResult:
     database: Path
+    checkpoints: Path | None
     vault: Path | None
     journal: Path | None
     pending_jobs: int
@@ -204,6 +237,14 @@ def restore_backup(backup_dir: Path, *, target: Path,
     database = target / "loop.db"
     shutil.copy2(backup_dir / "loop.db", database)
 
+    checkpoint_target: Path | None = None
+    checkpoint_part = manifest.part("checkpoints")
+    if checkpoint_part is not None:
+        checkpoint_target = target / "graph-checkpoints.sqlite"
+        shutil.copy2(backup_dir / checkpoint_part.relative_path,
+                     checkpoint_target)
+        secure_checkpoint_file(checkpoint_target)
+
     vault_target: Path | None = None
     if manifest.part("vault") is not None:
         vault_target = target / "vault"
@@ -214,7 +255,8 @@ def restore_backup(backup_dir: Path, *, target: Path,
         journal_target = target / "journal.json"
         shutil.copy2(backup_dir / "journal.json", journal_target)
 
-    return RestoreResult(database=database, vault=vault_target,
+    return RestoreResult(database=database, checkpoints=checkpoint_target,
+                         vault=vault_target,
                          journal=journal_target,
                          pending_jobs=manifest.pending_jobs,
                          pending_outbox=manifest.pending_outbox,

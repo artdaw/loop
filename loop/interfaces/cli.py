@@ -15,18 +15,30 @@ has matching behaviour (main spec §10, agent-stack migration note).
 
 from __future__ import annotations
 
+import asyncio
+import datetime as dt
 import json
+import signal
+from contextlib import suppress
 from pathlib import Path
+from typing import Annotated
+from zoneinfo import ZoneInfo
 
 import typer
 
+from loop.agents.coordinator import Coordinator
 from loop.ai.budget import RootBudget
 from loop.app import Application, build_application
 from loop.core.errors import LoopError
 from loop.core.privacy import PrivacyLabel
+from loop.db.migrations import applied_revisions
+from loop.ops.backup import BackupError, create_backup, restore_backup, verify_backup
 from loop.runtime.authority import AuthorityContext
+from loop.runtime.checkpointer import open_production_checkpointer
+from loop.runtime.coordinator_worker import CoordinatorJobWorker
 from loop.runtime.routine_dispatch import ROUTINE_SUBJECT, next_local_fire
 from loop.runtime.routines import parse_routine
+from loop.runtime.runs import checkpoint_path
 from loop.services.feedback import summarise
 from loop.services.knowledge import KnowledgeService
 
@@ -56,6 +68,14 @@ def _fail(exc: LoopError) -> None:
     raise typer.Exit(code=exc.exit_code)
 
 
+def _database_path(application: Application) -> Path:
+    prefix = "sqlite:///"
+    url = application.settings.database_url
+    if not url.startswith(prefix) or url == "sqlite:///:memory:":
+        raise BackupError("Backup requires a file-backed SQLite DATABASE_URL.")
+    return Path(url.removeprefix(prefix)).expanduser().resolve()
+
+
 # --------------------------------------------------------------------------- #
 # Status — must work with nothing configured (I6)
 # --------------------------------------------------------------------------- #
@@ -75,6 +95,82 @@ def status() -> None:
     typer.echo(f"enabled capabilities: {', '.join(enabled) or 'none'}")
     for limitation in limitations:
         typer.echo(f"note: {limitation}")
+
+
+@app.command("remind")
+def remind(title: str, at: str = typer.Option(
+        ..., "--at", help="ISO local or zoned time, for example 2026-09-08T09:00."),
+        timezone: str | None = typer.Option(None, "--timezone")) -> None:
+    """Persist a task and its exact reminder before confirming it."""
+    application = _app()
+    zone_name = timezone or application.settings.timezone
+    try:
+        zone = ZoneInfo(zone_name)
+        parsed = dt.datetime.fromisoformat(at.replace("Z", "+00:00"))
+        instant = parsed.replace(tzinfo=zone) if parsed.tzinfo is None else parsed
+    except (ValueError, TypeError) as exc:
+        typer.echo(f"error: invalid reminder time {at!r}: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    local = instant.astimezone(zone)
+    try:
+        result = application.reminders.schedule(
+            title, instant=instant, timezone=zone_name,
+            original_local=local.isoformat(timespec="minutes"))
+    except (LoopError, ValueError) as exc:
+        if isinstance(exc, LoopError):
+            _fail(exc)
+            return
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"{result.task.id}  scheduled for "
+               f"{local.isoformat(timespec='minutes')}")
+
+
+@app.command("backup")
+def backup(output: Annotated[Path, typer.Option("--output")]) -> None:
+    """Snapshot domain state, graph checkpoints, and the selected vault."""
+    application = _app()
+    try:
+        pending = application.service.pending_summary()
+        revisions = applied_revisions(application.sessions.kw["bind"])
+        manifest = create_backup(
+            database=_database_path(application),
+            checkpoints=checkpoint_path(application.settings.data_path),
+            vault=(application.settings.vault_root
+                   or application.settings.data_path / ".no-vault-configured"),
+            journal=None, destination=output,
+            created_at=int(application.clock.now().timestamp()),
+            schema_revision=sorted(revisions)[-1] if revisions else "",
+            pending_jobs=int(pending["jobs"]),
+            pending_outbox=int(pending["outbox"]))
+    except (BackupError, OSError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"backup written to {output} ({len(manifest.parts)} parts)")
+
+
+@app.command("restore")
+def restore(source: Annotated[Path, typer.Option("--from")],
+            target: Annotated[Path, typer.Option("--target")],
+            apply: Annotated[bool, typer.Option("--apply")] = False) -> None:
+    """Verify a backup; apply only into an explicit, empty target."""
+    try:
+        problems = verify_backup(source)
+        if problems:
+            raise BackupError("; ".join(problems))
+        if not apply:
+            typer.echo(f"verified; would restore into {target}")
+            return
+        result = restore_backup(source, target=target)
+    except (BackupError, OSError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"restored database to {result.database}")
+    if result.checkpoints is not None:
+        typer.echo(f"restored checkpoints to {result.checkpoints}")
+    if result.vault is not None:
+        typer.echo(f"restored vault to {result.vault}")
 
 
 # --------------------------------------------------------------------------- #
@@ -105,7 +201,8 @@ def task_complete(task_id: str, expected_version: int) -> None:
     """Complete a task. `expected_version` is required — never a blind write."""
     application = _app()
     try:
-        task = application.tasks.complete(task_id, expected_version=expected_version)
+        task = application.reminders.complete(task_id,
+                                              expected_version=expected_version)
     except LoopError as exc:
         _fail(exc)
         return
@@ -176,6 +273,42 @@ def run_once(sweep_only: bool = typer.Option(
         typer.echo(f"  {outcome.slug}: {outcome.decision or outcome.state}"
                    + (f" — {outcome.reason}" if outcome.reason else "")
                    + (f" [{outcome.error}]" if outcome.error else ""))
+
+
+@run_app.command("daemon")
+def run_daemon(interval_seconds: float = typer.Option(
+        1.0, "--interval-seconds", min=0.05)) -> None:
+    """Run the durable scheduler and workers until SIGTERM or Ctrl-C."""
+    asyncio.run(_run_daemon(interval_seconds))
+
+
+async def _run_daemon(interval_seconds: float) -> None:
+    application = _app()
+    stopping = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        with suppress(NotImplementedError):  # pragma: no cover - Windows loop
+            loop.add_signal_handler(signum, stopping.set)
+
+    async with open_production_checkpointer(application.settings.data_path) as saver:
+        coordinator = Coordinator(
+            invoker=application.invoker, roles=application.roles,
+            runs=application.runs, approvals=application.operations,
+            checkpointer=saver)
+        coordinator_worker = CoordinatorJobWorker(
+            jobs=application.jobs, coordinator=coordinator)
+        try:
+            while not stopping.is_set():
+                application.service.run_once()
+                application.routine_worker.run_due()
+                while await coordinator_worker.run_one() is not None:
+                    pass
+                try:
+                    await asyncio.wait_for(stopping.wait(), timeout=interval_seconds)
+                except TimeoutError:
+                    continue
+        finally:
+            application.service.leader.release()
 
 
 # --------------------------------------------------------------------------- #

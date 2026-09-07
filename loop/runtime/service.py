@@ -144,7 +144,7 @@ class LoopService:
                  jobs: JobQueue | None = None,
                  outbox: NotificationOutbox | None = None,
                  worker_id: str | None = None,
-                 on_trigger: Callable[[Any, str, str], object] | None = None
+                 on_trigger: Callable[[Any, str, str, Session | None], object] | None = None
                  ) -> None:
         self._sessions = sessions
         self._clock = clock or SystemClock()
@@ -192,21 +192,30 @@ class LoopService:
             key = (occurrence_key_for_one_shot(trigger.id)
                    if trigger.kind == "at" else self._schedule_key(trigger))
             nominal = from_micros(trigger.next_fire_at or to_micros(self._clock.now()))
-            firing_id = self.triggers.claim_occurrence(
-                trigger, key, nominal_at=nominal, effective_at=self._clock.now())
+            with self._sessions() as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                try:
+                    firing_id = self.triggers.claim_occurrence(
+                        trigger, key, nominal_at=nominal,
+                        effective_at=self._clock.now(), session=session)
 
-            if firing_id is None:
-                # Already fired: a restart replay or a concurrent sweep.
-                report.triggers_skipped += 1
-                self._advance_or_disable(trigger)
-                continue
+                    if firing_id is None:
+                        report.triggers_skipped += 1
+                        self._advance_or_disable(trigger, session=session)
+                        session.commit()
+                        continue
+
+                    if self._on_trigger is not None:
+                        self._on_trigger(trigger, decision, key, session)
+                    self._advance_or_disable(trigger, session=session)
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                    raise
 
             report.triggers_fired += 1
             if decision == "fire_delayed":
                 report.details.append(f"{trigger.id}: delayed")
-            if self._on_trigger is not None:
-                self._on_trigger(trigger, decision, key)
-            self._advance_or_disable(trigger)
 
     def _schedule_key(self, trigger: Any) -> str:
         from datetime import time as _time
@@ -221,16 +230,22 @@ class LoopService:
         local_date = moment.astimezone(ZoneInfo(timezone)).date()
         return occurrence_key_for_schedule(local_date, _time(hour, minute), timezone)
 
-    def _advance_or_disable(self, trigger: Any) -> None:
+    def _advance_or_disable(self, trigger: Any,
+                            session: Session | None = None) -> None:
         """Move a schedule to its next occurrence; retire a one-shot."""
         now = to_micros(self._clock.now())
         if trigger.kind == "at":
-            with self._sessions() as session:
-                session.execute(text(
+            def _disable(active: Session) -> None:
+                active.execute(text(
                     "UPDATE triggers SET enabled = 0, last_fire_at = :now, "
                     "next_fire_at = NULL, updated_at = :now, version = version + 1 "
                     "WHERE id = :id"), {"now": now, "id": trigger.id})
-                session.commit()
+            if session is not None:
+                _disable(session)
+            else:
+                with self._sessions() as own:
+                    _disable(own)
+                    own.commit()
             return
 
         from datetime import time as _time
@@ -241,13 +256,18 @@ class LoopService:
             self._clock.now(), days=list(definition.get("days", [])),
             wall_time=_time(hour, minute),
             timezone=definition.get("timezone", "UTC"))
-        with self._sessions() as session:
-            session.execute(text(
+        def _advance(active: Session) -> None:
+            active.execute(text(
                 "UPDATE triggers SET last_fire_at = :now, next_fire_at = :next, "
                 "updated_at = :now, version = version + 1 WHERE id = :id"),
                 {"now": now, "next": to_micros(occurrence.effective_at),
                  "id": trigger.id})
-            session.commit()
+        if session is not None:
+            _advance(session)
+        else:
+            with self._sessions() as own:
+                _advance(own)
+                own.commit()
 
     def _dispatch_outbox(self, report: TickReport) -> None:
         for item in self.outbox.due_items(limit=MAX_ITEMS_PER_SWEEP):

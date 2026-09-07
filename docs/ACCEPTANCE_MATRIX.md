@@ -16,17 +16,17 @@ A green test count is not coverage: a row is `verified` only when its named test
 
 | Stage | Section | Scenarios | verified | implemented | pending |
 |---|---|---:|---:|---:|---:|
-| A | 2. Commitments and everyday interaction | 15 | 15 | 0 | 0 |
-| A | 3. Time, durability and delivery | 17 | 17 | 0 | 0 |
+| A | 2. Commitments and everyday interaction | 15 | 8 | 7 | 0 |
+| A | 3. Time, durability and delivery | 17 | 16 | 1 | 0 |
 | B | 4. Knowledge and vault fidelity | 32 | 32 | 0 | 0 |
-| C | 5. Team coordination, privacy and control | 23 | 23 | 0 | 0 |
-| D | 6. Proactivity and learning | 21 | 21 | 0 | 0 |
-| E | 7. Travel itinerary capability | 24 | 24 | 0 | 0 |
-| D | 8. Weather from multiple sources | 24 | 24 | 0 | 0 |
-| C | 9. Capability extensibility | 14 | 14 | 0 | 0 |
-| E | 10. Build, migration, operations and release | 14 | 14 | 0 | 0 |
+| C | 5. Team coordination, privacy and control | 23 | 21 | 2 | 0 |
+| D | 6. Proactivity and learning | 21 | 17 | 4 | 0 |
+| E | 7. Travel itinerary capability | 24 | 18 | 6 | 0 |
+| D | 8. Weather from multiple sources | 24 | 22 | 2 | 0 |
+| C | 9. Capability extensibility | 14 | 12 | 2 | 0 |
+| E | 10. Build, migration, operations and release | 14 | 7 | 7 | 0 |
 | C/E | 11. Standard agent stack | 12 | 12 | 0 | 0 |
-| — | **Total** | **196** | **196** | **0** | **0** |
+| — | **Total** | **196** | **165** | **31** | **0** |
 
 
 ## 2. Commitments and everyday interaction
@@ -35,21 +35,21 @@ Stage **A** · planned milestones **A3–A4, A7**
 
 | ID | Given / action | Required result | Milestone | Implementation | Test | Status |
 |---|---|---|---|---|---|---|
-| T01 | At 2026-09-05 09:00 Europe/Berlin, “Remind me tomorrow at 9 to call the repai… | One ready task, one trigger for 2026-09-06T07:00:00Z; reply includes local date/time… | A9 | `loop/services/tasks.py + loop/runtime/triggers.py` | `test_stage_a_e2e.py::test_t01_*` | verified |
-| T02 | Replay the same Telegram update 3 times | Same accepted result, one task/trigger, one user acknowledgement occurrence | A3 | `loop/runtime/intake.py` | `test_intake.py::test_t02_*` | verified |
+| T01 | At 2026-09-05 09:00 Europe/Berlin, “Remind me tomorrow at 9 to call the repai… | One ready task, one trigger for 2026-09-06T07:00:00Z; reply includes local date/time… | A9 | `loop/services/reminders.py + loop/runtime/reminder_dispatch.py` | `test_stage_a_e2e.py::test_t01_*`, `test_release_e2e.py::test_task_restart_reminder_*` | verified |
+| T02 | Replay the same Telegram update 3 times | Same accepted result, one task/trigger, one user acknowledgement occurrence | A3 | `loop/runtime/intake.py` | `test_intake.py::test_t02_*`, `test_telegram.py::test_a_redelivered_update_is_not_processed_twice` | verified |
 | T03 | “Find a better approach to insurance” without timing | Task retained without invented due date; no unrequested timer | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t03_*` | verified |
-| T04 | “Remind me later to call” | Task saved, plan needs_input, one timing question, no false scheduled claim | E9 | `loop/runtime/interpret.py` | `test_remaining.py::test_t04_*` | verified |
-| T05 | Answer T04 with “tomorrow at 10” | Same task gains trigger; clarification resolves; no duplicate task | E9 | `loop/runtime/interpret.py` | `test_remaining.py::test_t05_*` | verified |
-| T06 | “Remember to call” versus “remember that production takes six weeks” | First is task intent; second is exact knowledge capture; unresolved reminder time sta… | E9 | `loop/runtime/interpret.py` | `test_remaining.py::test_t06_*` | verified |
-| T07 | “Remember this fact and remind me Friday at 10 to verify it” on a non-Friday | Separate capture and linked task; each has its own truthful result | E9 | `loop/runtime/interpret.py` | `test_remaining.py::test_t07_*` | verified |
-| T08 | Complete a task before its reminder sends | Task done and pending firing/notification cancelled atomically; outbox preflight prev… | A7 | `loop/runtime/outbox.py` | `test_stage_a_e2e.py::test_t08_*, test_outbox.py::test_t08_*` | verified |
-| T09 | Snooze a delivered reminder by 1 hour, replay button | One replacement occurrence at requested time; one feedback record; task remains open | A9 | `loop/runtime/triggers.py` | `test_stage_a_e2e.py::test_t09_*` | verified |
-| T10 | Dismiss a reminder | Notification suppressed, task not completed | A9 | `loop/runtime/outbox.py` | `test_stage_a_e2e.py::test_t10_*` | verified |
+| T04 | “Remind me later to call” | Task saved, plan needs_input, one timing question, no false scheduled claim | E9 | `loop/runtime/interpret.py` | `test_remaining.py::test_t04_*` | implemented |
+| T05 | Answer T04 with “tomorrow at 10” | Same task gains trigger; clarification resolves; no duplicate task | E9 | `loop/runtime/interpret.py` | `test_remaining.py::test_t05_*` | implemented |
+| T06 | “Remember to call” versus “remember that production takes six weeks” | First is task intent; second is exact knowledge capture; unresolved reminder time sta… | E9 | `loop/runtime/interpret.py` | `test_remaining.py::test_t06_*` | implemented |
+| T07 | “Remember this fact and remind me Friday at 10 to verify it” on a non-Friday | Separate capture and linked task; each has its own truthful result | E9 | `loop/runtime/interpret.py` | `test_remaining.py::test_t07_*` | implemented |
+| T08 | Complete a task before its reminder sends | Task done and pending firing/notification cancelled atomically; outbox preflight prev… | A7 | `loop/services/reminders.py + loop/runtime/outbox.py` | `test_stage_a_e2e.py::test_t08_*`, `test_outbox.py::test_t08_*`, `test_release_e2e.py::test_completion_*` | verified |
+| T09 | Snooze a delivered reminder by 1 hour, replay button | One replacement occurrence at requested time; one feedback record; task remains open | A9 | `loop/runtime/triggers.py` | `test_stage_a_e2e.py::test_t09_*` | implemented |
+| T10 | Dismiss a reminder | Notification suppressed, task not completed | A9 | `loop/runtime/outbox.py` | `test_stage_a_e2e.py::test_t10_*` | implemented |
 | T11 | Reopen completed task | Explicit versioned ready state; old reminders do not reactivate implicitly | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t11_*` | verified |
 | T12 | Extract a meeting action owned by another attendee | Remains that attendee's action; never silently assigned to owner or messaged external… | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t12_*` | verified |
 | T13 | Unsupported execution request, e.g. booking through unavailable adapter | Task preserved; missing capability and next step visible; no success claim | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t13_*` | verified |
 | T14 | Conflicting PATCH calls with same expected_version | First commits; second returns conflict without overwriting | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t14_*` | verified |
-| T15 | Idempotency key reused with a different body | HTTP 409 and no second effect | A3 | `loop/runtime/intake.py` | `test_intake.py::test_t15_*` | verified |
+| T15 | Idempotency key reused with a different body | HTTP 409 and no second effect | A3 | `loop/runtime/intake.py` | `test_intake.py::test_t15_*` | implemented |
 
 ## 3. Time, durability and delivery
 
@@ -57,22 +57,22 @@ Stage **A** · planned milestones **A5–A8**
 
 | ID | Given / action | Required result | Milestone | Implementation | Test | Status |
 |---|---|---|---|---|---|---|
-| D01 | Kill/restart after storing task+trigger | Reminder still becomes due and is processed once | A9 | `loop/runtime/service.py` | `test_stage_a_e2e.py::test_d01_a_crash_between_firing_and_disabling_does_not_double_fire` | verified |
+| D01 | Kill/restart after storing task+trigger | Reminder still becomes due and is processed once | A9 | `loop/runtime/service.py + reminder_dispatch.py` | `test_release_e2e.py::test_task_restart_reminder_*`, `test_release_e2e.py::test_trigger_dispatch_rolls_back_*` | verified |
 | D02 | Two workers claim the same due job concurrently | One current lease/fencing token can execute and commit | A6 | `loop/runtime/jobs.py` | `test_jobs.py::test_d02_a_claim_that_loses_the_race_returns_none` | verified |
 | D03 | Worker loses lease during model call, then returns | Stale worker cannot commit or start a new effect | A6 | `loop/runtime/jobs.py` | `test_jobs.py::test_d03_*` | verified |
-| D04 | Crash after DB state change, before outbox dispatch | Pending notification survives and sends under same identity | A7 | `loop/runtime/outbox.py` | `test_outbox.py::test_d04_*` | verified |
+| D04 | Crash after DB state change, before outbox dispatch | Pending notification survives and sends under same identity | A7 | `loop/runtime/outbox.py` | `test_outbox.py::test_d04_*`, `test_routine_weather_e2e.py::test_a_separate_operating_system_process_completes_the_routine` | verified |
 | D05 | Provider definitely rejects before sending, then recovers | Bounded retry and one acknowledged effect | A6 | `loop/runtime/jobs.py` | `test_jobs.py::test_d05_*` | verified |
-| D06 | Telegram accepts send but client times out without receipt | unknown delivery state; no blind automatic resend or false sent claim | A7 | `loop/runtime/outbox.py` | `test_outbox.py::test_d06_*` | verified |
+| D06 | Telegram accepts send but client times out without receipt | unknown delivery state; no blind automatic resend or false sent claim | A7 | `loop/runtime/outbox.py` | `test_outbox.py::test_d06_*`, `test_routine_weather_e2e.py::test_an_uncertain_send_is_never_blindly_resent` | verified |
 | D07 | Local schedule 02:30 on 2026-03-29 Europe/Berlin | Resolve to 03:30 local / 01:30Z; record gap policy | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d07_*` | verified |
 | D08 | Local schedule 02:30 on 2026-10-25 Europe/Berlin | One firing at fold=0 / 00:30Z; no second 02:30 reminder | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d08_*` | verified |
 | D09 | Host resumes 2 hours after explicit reminder | One delayed reminder within 24-hour catch-up window | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d09_*` | verified |
 | D10 | Host resumes after 5 missed weather mornings | Skip stale runs; at most one timely current result | A5 | `loop/runtime/triggers.py` | `test_triggers.py::test_d10_*` | verified |
-| D11 | Cancel task while queued for delivery | Pre-send current-state check cancels it; an already in-flight effect is reported hone… | A6 | `loop/runtime/jobs.py` | `test_jobs.py::test_d11_*` | verified |
+| D11 | Cancel task while queued for delivery | Pre-send current-state check cancels it; an already in-flight effect is reported hone… | A6 | `loop/runtime/jobs.py` | `test_jobs.py::test_d11_*`, `test_release_e2e.py::test_completion_through_the_shipped_entrypoint_prevents_stale_delivery` | verified |
 | D12 | Change timezone of floating routine | Recompute future occurrences only; explicit-zone task unchanged | E9 | `loop/runtime/triggers.py` | `test_remaining.py::test_d12_*` | verified |
 | D13 | Expired approval or changed target version | No execution; actionable stale/conflict response | E9 | `loop/runtime/operations.py`, `loop/api/service.py` | `test_remaining.py::test_d13_*` | verified |
-| D14 | SIGTERM then forced stop during operation | Recovery manifest and pending work retained; fresh process can reconcile | E9 | `loop/runtime/jobs.py`, `loop/ops/backup.py` | `test_remaining.py::test_d14_*` | verified |
+| D14 | SIGTERM then forced stop during operation | Recovery manifest and pending work retained; fresh process can reconcile | E9 | `loop/runtime/jobs.py`, `loop/ops/backup.py` | `test_remaining.py::test_d14_*`, `test_release_e2e.py::test_daemon_*` | implemented |
 | D15 | Scheduler import in web reload or a second bot alias | No duplicate timer/intake leader or repeated polling | A8 | `loop/runtime/service.py` | `test_stage_a_e2e.py::test_d15_*` | verified |
-| D16 | Model unavailable while a deterministic reminder is due | Reminder sends without invoking cloud or requiring model recovery | A8 | `loop/runtime/service.py` | `test_stage_a_e2e.py::test_d16_*` | verified |
+| D16 | Model unavailable while a deterministic reminder is due | Reminder sends without invoking cloud or requiring model recovery | A8 | `loop/runtime/service.py + reminder_dispatch.py` | `test_stage_a_e2e.py::test_d16_*`, `test_release_e2e.py::test_task_restart_reminder_*` | verified |
 | D17 | Idle service, no routines, fake clock advances 24 hours | Zero model calls; bounded deterministic sweeps only | A8 | `loop/runtime/service.py` | `test_stage_a_e2e.py::test_d17_*` | verified |
 
 ## 4. Knowledge and vault fidelity
@@ -120,14 +120,14 @@ Stage **C** · planned milestones **C1–C4**
 
 | ID | Given / action | Required result | Milestone | Implementation | Test | Status |
 |---|---|---|---|---|---|---|
-| A01 | Prepare a trip using independent calendar/weather/knowledge reads | Bounded parallel assignments with one Coordinator, merged result and notification | C1 | `loop/runtime/planner.py` | `test_planner_authority.py::test_a01_*` | verified |
+| A01 | Prepare a trip using independent calendar/weather/knowledge reads | Bounded parallel assignments with one Coordinator, merged result and notification | C1 | `loop/runtime/planner.py` | `test_planner_authority.py::test_a01_*` | implemented |
 | A02 | Plan has cyclic dependencies, fabricated tool, or extra authority field | Schema/graph/authority rejection before execution | C1 | `loop/runtime/planner.py` | `test_planner_authority.py::test_a02_*` | verified |
 | A03 | Specialist proposes follow-up work repeatedly | Shared root budgets/depth/hop limits stop loop; partial status retained | C1 | `loop/runtime/planner.py` | `test_planner_authority.py::test_a03_*` | verified |
 | A04 | Two agents propose the same allocated logical effect slot or reminder occurre… | Executor idempotency and domain identity prevent duplicate effect | C1/C4 | `loop/runtime/planner.py + operations.py` | `test_planner_authority.py::test_a04_*, test_operations.py::test_a04_*` | verified |
 | A05 | Researcher returns unsupported/uncited claim; Reviewer approves it | Deterministic evidence validator still blocks compilation | E2 | `loop/agents/seeker.py` | `test_research_and_gates.py::test_a05_*` | verified |
 | A06 | Cancel root plan with child work pending | Child jobs cancelled; current work checks cancellation before effects | C2 | `loop/runtime/authority.py` | `test_planner_authority.py::test_a06_*` | verified |
 | A07 | Tool budget or token deadline reached | Paused/partial result with resumable ID; no silently replenished child budget | C3 | `loop/ai/budget.py + authority.py` | `test_planner_authority.py::test_a07_*` | verified |
-| A08 | Private raw note → wiki → retrieved answer → task → summary | local_only survives every derivative and team hand-off | C2 | `loop/runtime/authority.py` | `test_planner_authority.py::test_a08_*` | verified |
+| A08 | Private raw note → wiki → retrieved answer → task → summary | local_only survives every derivative and team hand-off | C2 | `loop/runtime/authority.py` | `test_planner_authority.py::test_a08_*` | implemented |
 | A09 | Caller passes local_only=false with private history or retrieved hit | No downgrade; router uses local only | C2 | `loop/runtime/authority.py` | `test_planner_authority.py::test_a09_*` | verified |
 | A10 | Local model fails on private Telegram request | privacy_blocked/local-unavailable; zero cloud calls | E2 | `loop/ai/model_gateway.py` | `test_research_and_gates.py::test_a10_*` | verified |
 | A11 | Private profile included in otherwise public research reasoning | Local reasoning; any external search query independently checked/minimized | C2 | `loop/runtime/authority.py` | `test_planner_authority.py::test_a11_*` | verified |
@@ -154,13 +154,13 @@ Stage **D** · planned milestones **D1–D4, E1**
 | P02 | Same request lacks location | Saved inactive proposal and one question; timezone not used as guessed location | D2 | `loop/runtime/routines.py` | `test_routines_notify.py::test_p02_*` | verified |
 | P03 | Fresh forecast shows 60% rain during horizon | Practical rain advice with time/source; exact configured occurrence count | D1/D3 | `loop/services/observations.py` | `test_observations_health.py::test_p03_*` | verified |
 | P04 | Forecast unavailable/stale | Availability warning, no confident “no rain”; stale weather cannot satisfy predicate | D1/D3 | `loop/services/observations.py` | `test_observations_health.py::test_p04_*` | verified |
-| P05 | Condition remains true through repeated sensor updates | One edge/occurrence notification until rearm or authorized next occurrence | D1/D3 | `loop/services/observations.py` | `test_observations_health.py::test_p05_*` | verified |
+| P05 | Condition remains true through repeated sensor updates | One edge/occurrence notification until rearm or authorized next occurrence | D1/D3 | `loop/services/observations.py` | `test_observations_health.py::test_p05_*` | implemented |
 | P06 | Discretionary candidate during quiet hours/over cap | Deferred to digest or expired; not silently promoted to urgent | D4 | `loop/runtime/notify_policy.py` | `test_routines_notify.py::test_p06_*` | verified |
-| P07 | Explicit timed reminder during quiet hours | Delivered at requested time under explicit authority | D4 | `loop/runtime/notify_policy.py` | `test_routines_notify.py::test_p07_*` | verified |
+| P07 | Explicit timed reminder during quiet hours | Delivered at requested time under explicit authority | D4 | `loop/runtime/notify_policy.py` | `test_routines_notify.py::test_p07_*`, `test_routine_weather_e2e.py::test_a_routine_the_owner_timed_themselves_is_delivered_in_quiet_hours` | verified |
 | P08 | “Working from home today” | Expiring override suppresses commute-scoped routine only; next day normal policy resu… | D1/D3 | `loop/services/observations.py` | `test_observations_health.py::test_p08_*` | verified |
-| P09 | Meeting rescheduled or cancelled | Old pending reminders cancelled; updated occurrence uses new version | D4 | `loop/runtime/notify_policy.py` | `test_routines_notify.py::test_p09_*` | verified |
-| P10 | One of two calendar providers fails | Successful results retained; failing provider marked unavailable, not free diary | D1/D3 | `loop/connectors/health.py` | `test_observations_health.py::test_p10_*` | verified |
-| P11 | Repeated provider errors in same outage | One standalone outage notice, status/digest updates thereafter | D1/D3 | `loop/connectors/health.py` | `test_observations_health.py::test_p11_*` | verified |
+| P09 | Meeting rescheduled or cancelled | Old pending reminders cancelled; updated occurrence uses new version | D4 | `loop/runtime/notify_policy.py` | `test_routines_notify.py::test_p09_*` | implemented |
+| P10 | One of two calendar providers fails | Successful results retained; failing provider marked unavailable, not free diary | D1/D3 | `loop/connectors/health.py` | `test_observations_health.py::test_p10_*` | implemented |
+| P11 | Repeated provider errors in same outage | One standalone outage notice, status/digest updates thereafter | D1/D3 | `loop/connectors/health.py` | `test_observations_health.py::test_p11_*` | implemented |
 | P12 | Five consistent snoozes on distinct days in 28-day window | One evidence-backed timing proposal with sample count; no automatic rule change | E1 | `loop/services/learning.py` | `test_learning.py::test_p12_*` | verified |
 | P13 | Four snoozes, high variance, or repeated same-day clicks | No timing proposal meeting threshold | E1 | `loop/services/learning.py` | `test_learning.py::test_p13_*` | verified |
 | P14 | User rejects timing change | Equivalent proposal suppressed for 30 days | E1 | `loop/services/learning.py` | `test_learning.py::test_p14_*` | verified |
@@ -191,17 +191,17 @@ Stage **E** · planned milestones **E3**
 | TR11 | Search snippets, conflicting provider pages, or unavailable optional route ad… | Actually read evidence required; scoped degradation/official-page fallback; no fabric… | E3 | `loop/capabilities/travel/evidence.py` | `test_travel.py::test_tr11_*` | verified |
 | TR12 | Two options with different pace/cost tradeoffs | Transparent priority-based ranking, distinct alternatives, no unsupported globally-be… | E3 | `loop/capabilities/travel/options.py` | `test_travel.py::test_tr12_*` | verified |
 | TR13 | “Less moving around” revises an existing trip; two concurrent edits | Same trip and immutable revisions; expected_version rejects stale results; selected p… | E3 | `loop/capabilities/travel/trip.py` | `test_travel.py::test_tr13_*` | verified |
-| TR14 | Plan or select itinerary without monitoring/booking instructions | No booking, payment, host message, calendar write or activated background checks | E3 | `loop/capabilities/travel/trip.py`, `loop/capabilities/travel/schedule.py` | `test_travel.py::test_tr14_*` | verified |
-| TR15 | Explicit monitor request with selected option, then restart | Durable scoped checkpoints/events until trip end; already-past and coincident checkpo… | E3 | `loop/capabilities/travel/monitor.py` | `test_travel.py::test_tr15_*` | verified |
-| TR16 | Repeated closure/disruption events and no-change checks | One material-change notice with before/after evidence and alternatives; no-change che… | E3 | `loop/capabilities/travel/monitor.py` | `test_travel.py::test_tr16_*` | verified |
-| TR17 | Changed cost quote has different party/fees/date basis | No misleading price-change alert; comparison blocked or labelled non-comparable | E3 | `loop/capabilities/travel/monitor.py` | `test_travel.py::test_tr17_*` | verified |
-| TR18 | New proposed itinerary moves a confirmed booking | Booking remains a fixed anchor; no remote change; separate proposal/authority needed | E3 | `loop/capabilities/travel/schedule.py`, `loop/capabilities/travel/trip.py` | `test_travel.py::test_tr18_*` | verified |
-| TR19 | Stop monitoring, cancel trip, or select a new revision | Correct future triggers/subscriptions updated atomically; pending obsolete alerts can… | E3 | `loop/capabilities/travel/trip.py`, `loop/capabilities/travel/monitor.py` | `test_travel.py::test_tr19_*` | verified |
+| TR14 | Plan or select itinerary without monitoring/booking instructions | No booking, payment, host message, calendar write or activated background checks | E3 | `loop/capabilities/travel/trip.py`, `loop/capabilities/travel/schedule.py` | `test_travel.py::test_tr14_*`, `test_trip_monitor_e2e.py::test_activation_must_name_the_request_that_authorised_it` | verified |
+| TR15 | Explicit monitor request with selected option, then restart | Durable scoped checkpoints/events until trip end; already-past and coincident checkpo… | E3 | `loop/capabilities/travel/monitor.py` | `test_travel.py::test_tr15_*`, `test_trip_monitor_e2e.py` | implemented |
+| TR16 | Repeated closure/disruption events and no-change checks | One material-change notice with before/after evidence and alternatives; no-change che… | E3 | `loop/capabilities/travel/monitor.py` | `test_travel.py::test_tr16_*` | implemented |
+| TR17 | Changed cost quote has different party/fees/date basis | No misleading price-change alert; comparison blocked or labelled non-comparable | E3 | `loop/capabilities/travel/monitor.py` | `test_travel.py::test_tr17_*` | implemented |
+| TR18 | New proposed itinerary moves a confirmed booking | Booking remains a fixed anchor; no remote change; separate proposal/authority needed | E3 | `loop/capabilities/travel/schedule.py`, `loop/capabilities/travel/trip.py` | `test_travel.py::test_tr18_*` | implemented |
+| TR19 | Stop monitoring, cancel trip, or select a new revision | Correct future triggers/subscriptions updated atomically; pending obsolete alerts can… | E3 | `loop/capabilities/travel/trip.py`, `loop/capabilities/travel/monitor.py` | `test_travel.py::test_tr19_*`, `test_trip_monitor_e2e.py` | implemented |
 | TR20 | Save itinerary into a project with a human file collision | Verified versioned projection via gateway; no overwrite; reusable facts use raw-to-wi… | E3 | `loop/capabilities/travel/trip.py` | `test_travel.py::test_tr20_*` | verified |
 | TR21 | Private booking/profile context influences research | Local-only propagation; external queries omit identity/reservation codes and unrelate… | E3 | `loop/capabilities/travel/brief.py` | `test_travel.py::test_tr21_*` | verified |
 | TR22 | Explicit preference correction versus one-off itinerary choice | Scoped confirmed preference respected; no permanent habit inferred from a single sele… | E3 | `loop/capabilities/travel/brief.py`, `loop/services/learning.py` | `test_travel.py::test_tr22_*` | verified |
 | TR23 | Unsupported monitoring check, missing option, or exhausted root budget | Visible unavailable/needs_input/partial state; no false active/full-plan claim or hid… | E3 | `loop/capabilities/travel/monitor.py`, `loop/capabilities/travel/options.py` | `test_travel.py::test_tr23_*` | verified |
-| TR24 | Equivalent CLI, Telegram and API requests/replays | Same brief/revision semantics, authenticated versioned mutations and one logical effe… | E3 | `loop/capabilities/travel/trip.py` | `test_travel.py::test_tr24_*` | verified |
+| TR24 | Equivalent CLI, Telegram and API requests/replays | Same brief/revision semantics, authenticated versioned mutations and one logical effe… | E3 | `loop/capabilities/travel/trip.py` | `test_travel.py::test_tr24_*` | implemented |
 
 ## 8. Weather from multiple sources
 
@@ -217,7 +217,7 @@ Stage **D** · planned milestones **D5–D6**
 | WF06 | Three-hour probability versus hourly probability or amount | Incompatible statistics kept separate; no averaging, division or false equivalence | D5–D6 | `loop/capabilities/weather/normalize.py` | `test_weather.py::test_wf06_*` | verified |
 | WF07 | Kelvin/Fahrenheit, m/s, interval-ending rain sums, missing feels-like | Deterministic unit/time normalization; missing/derived values explicit | D5–D6 | `loop/capabilities/weather/normalize.py` | `test_weather.py::test_wf07_*` | verified |
 | WF08 | Fetch repeats an unchanged old model run | issued_at/age preserved; stale product cannot become fresh through cache refresh | D5–D6 | `loop/capabilities/weather/normalize.py` | `test_weather.py::test_wf08_*` | verified |
-| WF09 | Fresh observations but no forecast beyond nowcast horizon | Present conditions distinguished from future forecast; missing future coverage visible | D5–D6 | `loop/capabilities/weather/sources.py`, `loop/capabilities/weather/compare.py` | `test_weather.py::test_wf09_*` | verified |
+| WF09 | Fresh observations but no forecast beyond nowcast horizon | Present conditions distinguished from future forecast; missing future coverage visible | D5–D6 | `loop/capabilities/weather/sources.py`, `loop/capabilities/weather/compare.py` | `test_weather.py::test_wf09_*` | implemented |
 | WF10 | Nearby station has wrong elevation/terrain or foreign destination | Suitability beats simple proximity; destination/jurisdiction sources selected correct… | D5–D6 | `loop/capabilities/weather/sources.py` | `test_weather.py::test_wf10_*` | verified |
 | WF11 | Official applicable warning with otherwise mild forecasts | Warning retained with source, area, effective time and instructions; not averaged away | D5–D6 | `loop/capabilities/weather/warnings.py` | `test_weather.py::test_wf11_*` | verified |
 | WF12 | Warning feed is missing, stale, partial or unavailable | Unknown warning state; no all-clear or cancellation inferred | D5–D6 | `loop/capabilities/weather/warnings.py` | `test_weather.py::test_wf12_*` | verified |
@@ -228,11 +228,11 @@ Stage **D** · planned milestones **D5–D6**
 | WF17 | Comparator supports rain but preferred source does not | Conditional source-attributed preparation; no changed primary probability or fabricat… | D5–D6 | `loop/capabilities/weather/compare.py`, `loop/capabilities/weather/bundle.py` | `test_weather.py::test_wf17_*` | verified |
 | WF18 | Provider/routine call budget reached or one source times out | Bounded partial result; successful sources retained and skipped requests visible | D5–D6 | `loop/capabilities/weather/bundle.py` | `test_weather.py::test_wf18_*` | verified |
 | WF19 | Official feed or source text includes unrelated instructions | Treated as data; no permission promotion, arbitrary fetch, or model egress | D5–D6 | `loop/capabilities/weather/bundle.py` | `test_weather.py::test_wf19_*` | verified |
-| WF20 | Enable warning subscription without quiet-hour exemption | Ordinary policy retained; authority label alone cannot grant urgent delivery | D5–D6 | `loop/capabilities/weather/warnings.py`, `loop/runtime/notify_policy.py` | `test_weather.py::test_wf20_*` | verified |
-| WF21 | Privacy-sensitive home/trip context used for forecast | Only needed location/time/fields sent; profiles, addresses as text and reservation co… | D5–D6 | `loop/capabilities/weather/bundle.py` | `test_weather.py::test_wf21_*` | verified |
+| WF20 | Enable warning subscription without quiet-hour exemption | Ordinary policy retained; authority label alone cannot grant urgent delivery | D5–D6 | `loop/capabilities/weather/warnings.py`, `loop/runtime/notify_policy.py` | `test_weather.py::test_wf20_*`, `test_routine_weather_e2e.py::test_a_discretionary_routine_in_quiet_hours_waits_for_the_digest` | verified |
+| WF21 | Privacy-sensitive home/trip context used for forecast | Only needed location/time/fields sent; profiles, addresses as text and reservation co… | D5–D6 | `loop/capabilities/weather/bundle.py` | `test_weather.py::test_wf21_*`, `test_routine_weather_e2e.py::test_only_coordinates_fields_and_a_window_leave_the_process` | verified |
 | WF22 | Add another installed source through vault policy | Shared source registry selects it without planner/bot/scheduler edits; missing adapte… | D5–D6 | `loop/capabilities/weather/sources.py` | `test_weather.py::test_wf22_*` | verified |
 | WF23 | Repeated report or save weather finding | Expiring operational state remains separate; explicit durable capture uses raw/ledger… | D5–D6 | `loop/capabilities/weather/bundle.py` | `test_weather.py::test_wf23_*` | verified |
-| WF24 | CLI/API/bot/departure/travel consume the same bundle | Matching values, labels, source intervals and uncertainty, with no provider-specific… | D5–D6 | `loop/capabilities/weather/bundle.py` | `test_weather.py::test_wf24_*` | verified |
+| WF24 | CLI/API/bot/departure/travel consume the same bundle | Matching values, labels, source intervals and uncertainty, with no provider-specific… | D5–D6 | `loop/capabilities/weather/bundle.py` | `test_weather.py::test_wf24_*` | implemented |
 
 ## 9. Capability extensibility
 
@@ -241,19 +241,19 @@ Stage **C** · planned milestones **C5–C7**
 | ID | Given / action | Required result | Milestone | Implementation | Test | Status |
 |---|---|---|---|---|---|---|
 | EX01 | Scaffold a simple local capability from the template | Manifest, instructions, schemas and examples created at explicit path; existing files… | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex01_*` | verified |
-| EX02 | Register two unrelated fixture packs | Discovered and invoked through unchanged Coordinator/core/CLI/API/bot handlers | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex02_*` | verified |
+| EX02 | Register two unrelated fixture packs | Discovered and invoked through unchanged Coordinator/core/CLI/API/bot handlers | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex02_*`, `test_cli.py::test_do_invokes_a_capability_by_name_with_no_dedicated_command`, `test_telegram.py::test_do_invokes_any_operation_without_a_command_of_its_own` | verified |
 | EX03 | Unknown schema ref, path escape, invalid manifest or colliding operation name | Validation errors before import/network/model/effects; no silent namespace takeover | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex03_*` | verified |
 | EX04 | Missing/incompatible dependency or cross-pack dependency cycle | Visible blocked availability; no model claim that capability executed | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex04_*` | verified |
 | EX05 | Pure instruction pack with existing tools | No new Python, DB table or custom scheduler required; shared artifact storage and rol… | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex05_*` | verified |
 | EX06 | Workflow invokes registered operations using typed references | DAG/schema validation, shared budget/labels/authority; no eval or unbounded loop | E9 | `loop/runtime/planner.py` | `test_remaining.py::test_ex06_*` | verified |
-| EX07 | Generic invocation via CLI, /do and HTTP | Same validated input/output, authentication, idempotency and error/run envelopes | E9 | `loop/api/service.py` | `test_remaining.py::test_ex07_*` | verified |
+| EX07 | Generic invocation via CLI, /do and HTTP | Same validated input/output, authentication, idempotency and error/run envelopes | E9 | `loop/api/service.py` | `test_remaining.py::test_ex07_*`, `test_cli.py::test_do_*`, `test_http.py::test_invoke_*`, `test_telegram.py::test_do_*` | implemented |
 | EX08 | Pack requests extra recipients, spending or arbitrary direct tool access | Manifest cannot grant authority; executor limits effects to actual request/policy | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex08_*` | verified |
 | EX09 | Enable then disable with queued/in-flight work | New work blocked; pending dependent effects cancelled; in-flight checks respect cance… | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex09_*` | verified |
 | EX10 | Upgrade during a running job, same-version byte change, or restart pending wo… | Exact package/schema version pinned; same-version mutation rejected; unavailable vers… | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex10_*` | verified |
 | EX11 | Breaking schema/effect change and rollback | Explicit migration/diff and authority; old state preserved; rollback cannot undo remo… | E9 | `loop/capabilities/objects.py` | `test_remaining.py::test_ex11_*` | verified |
 | EX12 | Offline conformance examples attempt network/secret/vault access | Denied by isolated test harness; user's real environment not used | E9 | `tests/vnext/conftest.py`, `loop/core/settings.py` | `test_remaining.py::test_ex12_*` | verified |
 | EX13 | New domain uses capability_objects and concurrent edits | Registered payload schema and expected_version enforced; privacy propagated without b… | E9 | `loop/capabilities/objects.py` | `test_remaining.py::test_ex13_*` | verified |
-| EX14 | Weather/travel loaded as packs plus simple checklist extension | All share registry/lifecycle/executor; large domain schemas do not become required si… | E9 | `loop/capabilities/objects.py` | `test_remaining.py::test_ex14_*` | verified |
+| EX14 | Weather/travel loaded as packs plus simple checklist extension | All share registry/lifecycle/executor; large domain schemas do not become required si… | E9 | `loop/capabilities/objects.py` | `test_remaining.py::test_ex14_*` | implemented |
 
 ## 10. Build, migration, operations and release
 
@@ -265,15 +265,15 @@ Stage **E** · planned milestones **E4–E7**
 | O02 | Wheel installed outside source checkout | CLI imports all modules and finds web assets; pydantic_settings present | E6 | `pyproject.toml` (packages.find, package-data) | `test_ops_and_packaging.py::test_o02_*`, `test_packaging.py::test_o02_*` | verified |
 | O03 | Docker build from clean context | No missing core directory, no secrets included; non-root loop run entrypoint | E6 | `Dockerfile`, `.dockerignore` | `test_ops_and_packaging.py::test_o03_*`, `test_packaging.py::test_o03_*` | verified |
 | O04 | Start without optional connectors/models | Status and deterministic tasks/reminders available; dependencies report truthful state | E5 | `loop/ops/doctor.py` | `test_ops_and_packaging.py::test_o04_*` | verified |
-| O05 | Run with wrong Python through setup | Clear version diagnostic before arbitrary import traceback | E5 | `loop/ops/doctor.py` | `test_ops_and_packaging.py::test_o05_*` | verified |
+| O05 | Run with wrong Python through setup | Clear version diagnostic before arbitrary import traceback | E5 | `loop/ops/doctor.py` | `test_ops_and_packaging.py::test_o05_*` | implemented |
 | O06 | Migrate populated legacy DB in dry-run then apply | Counts/IDs/completions/privacy/remote links preserved; no implicit old routine activa… | E7 | `loop/db/migrations.py`, `loop/db/legacy.py` | `test_schema_and_migration.py`, `test_ops_and_packaging.py::test_o06_*` | verified |
-| O07 | API and HTML mutations | Same service behavior as Telegram/CLI; authenticated, CSRF-protected forms return 303 | E4 | `loop/api/service.py` | `test_ops_and_packaging.py::test_o07_*` | verified |
-| O08 | Repeated HTTP mutation and unknown/stale ID | Defined idempotency/conflict/not-found behavior; no duplicate effect | E4 | `loop/api/service.py` | `test_ops_and_packaging.py::test_o08_*` | verified |
-| O09 | Backup then isolated restore | Consistent DB+vault+operation manifest, pending jobs recover; no unrelated files over… | E7 | `loop/ops/backup.py` | `test_ops_and_packaging.py::test_o09_*` | verified |
-| O10 | Rebuild indexes after corruption or deletion | Same searchable authorized facts; original state untouched | E7 | `loop/ops/retention.py` | `test_ops_and_packaging.py::test_o10_*` | verified |
-| O11 | Retention maintenance | Expired content/derivatives removed, active work pinned, ordinary vault evidence pres… | E7 | `loop/ops/retention.py` | `test_ops_and_packaging.py::test_o11_*` | verified |
-| O12 | 500-source synthetic load and timer workload | Report persistence/claim latency, hardware, queue depth; compare main §9 targets | E7 | `loop/ops/perf.py` | `test_ops_and_packaging.py::test_o12_*` | verified |
-| O13 | Current service halted/asleep | Status reports stale heartbeat and catch-up limits, not guaranteed continuous availab… | E5 | `loop/ops/doctor.py` | `test_ops_and_packaging.py::test_o13_*` | verified |
+| O07 | API and HTML mutations | Same service behavior as Telegram/CLI; authenticated, CSRF-protected forms return 303 | E4 | `loop/api/service.py` | `test_ops_and_packaging.py::test_o07_*` | implemented |
+| O08 | Repeated HTTP mutation and unknown/stale ID | Defined idempotency/conflict/not-found behavior; no duplicate effect | E4 | `loop/api/service.py` | `test_ops_and_packaging.py::test_o08_*` | implemented |
+| O09 | Backup then isolated restore | Consistent DB+vault+operation manifest, pending jobs recover; no unrelated files over… | E7 | `loop/ops/backup.py` | `test_ops_and_packaging.py::test_o09_*`, `test_release_e2e.py::test_domain_checkpoint_and_vault_*` | verified |
+| O10 | Rebuild indexes after corruption or deletion | Same searchable authorized facts; original state untouched | E7 | `loop/ops/retention.py` | `test_ops_and_packaging.py::test_o10_*` | implemented |
+| O11 | Retention maintenance | Expired content/derivatives removed, active work pinned, ordinary vault evidence pres… | E7 | `loop/ops/retention.py` | `test_ops_and_packaging.py::test_o11_*` | implemented |
+| O12 | 500-source synthetic load and timer workload | Report persistence/claim latency, hardware, queue depth; compare main §9 targets | E7 | `loop/ops/perf.py` | `test_ops_and_packaging.py::test_o12_*` | implemented |
+| O13 | Current service halted/asleep | Status reports stale heartbeat and catch-up limits, not guaranteed continuous availab… | E5 | `loop/ops/doctor.py` | `test_ops_and_packaging.py::test_o13_*` | implemented |
 | O14 | Full acceptance run | Hermetic tests, schema checks, lint/type checks, build and restart tests pass | E8 | `scripts/acceptance_run.sh` | `test_packaging.py::test_o14_*` | verified |
 
 ## 11. Standard agent stack
@@ -292,5 +292,5 @@ Specification 1.3 additions; no implementation or verification is claimed.
 | LG08 | Approval interrupt, restart and authenticated resume | Same bound approval; expired, altered or unauthorized decisions cannot execute | WP6 | `loop/runtime/runs.py` | `test_run_durability.py::test_lg08_*` | verified |
 | LG09 | Disable pack or cancel paused run before resume | Current cancellation and authority checked before tool/effect | WP6 | `loop/runtime/runs.py` | `test_run_durability.py::test_lg09_*` | verified |
 | LG10 | Upgrade graph or capability while run is paused | Pinned version resumes or visibly pauses if unavailable; no silent substitution | WP6 | `loop/runtime/runs.py` | `test_run_durability.py::test_lg10_*` | verified |
-| LG11 | Private checkpoint backup, restore and forgetting | Consistent paired DB backup; source retention applies; no remote content trace | WP6 | `loop/runtime/runs.py` | `test_run_durability.py::test_lg11_*` | verified |
+| LG11 | Private checkpoint backup, restore and forgetting | Consistent paired DB backup; source retention applies; no remote content trace | WP6 | `loop/runtime/runs.py`, `loop/ops/backup.py` | `test_run_durability.py::test_lg11_*`, `test_release_e2e.py::test_domain_checkpoint_and_vault_*` | verified |
 | LG12 | No events, or configured model lacks required features | No idle inference; unsupported model features reported without implicit cloud use | WP2 | `loop/ai/model_gateway.py` | `test_model_gateway.py::test_lg12_*` | verified |

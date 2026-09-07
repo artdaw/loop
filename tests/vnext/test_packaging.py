@@ -130,6 +130,24 @@ def test_o02_the_source_tree_is_not_on_the_path(installed_wheel):
     assert result.stdout.strip() == "False"
 
 
+def test_o02_the_installed_vnext_command_runs_outside_the_checkout(
+        installed_wheel, tmp_path):
+    command = installed_wheel.with_name("loop-next")
+    runtime = tmp_path / "installed-runtime"
+    runtime.mkdir()
+    environment = {
+        **os.environ,
+        "DATABASE_URL": f"sqlite:///{runtime / 'loop.db'}",
+        "DATA_DIR": str(runtime),
+        "CAPABILITY_PATHS": "[]",
+        "OBSIDIAN_VAULT_PATH": "",
+    }
+    result = _run([str(command), "status"], cwd=runtime, env=environment)
+
+    assert result.returncode == 0, result.stderr
+    assert "triggers enabled: 0" in result.stdout
+
+
 # --------------------------------------------------------------------------- #
 # O03 — the image
 # --------------------------------------------------------------------------- #
@@ -186,8 +204,12 @@ def test_o03_the_data_directory_is_writable_by_the_run_user(built_image):
 # O14 — the checks that gate a release
 # --------------------------------------------------------------------------- #
 def test_o14_the_hermetic_suite_passes():
+    environment = dict(os.environ)
+    # This subprocess is the non-packaging suite. Inheriting the opt-in flag
+    # recursively invokes this test from itself and never reaches a result.
+    environment.pop("LOOP_PACKAGING_TESTS", None)
     result = _run([sys.executable, "-m", "pytest", "tests/", "-p",
-                   "no:cacheprovider", "-q", "--no-header"])
+                   "no:cacheprovider", "-q", "--no-header"], env=environment)
     assert result.returncode == 0, result.stdout[-4000:]
 
 

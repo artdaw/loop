@@ -14,21 +14,29 @@ PY="${PY:-.venv/bin/python}"
 step() { printf '\n=== %s ===\n' "$1"; }
 
 step "lint"
-"$PY" -m ruff check loop tests
+"$PY" -m ruff check .
 
 step "types"
-"$PY" -m mypy loop
+"$PY" -m mypy . --exclude '^build/'
 
 step "hermetic test suite"
 "$PY" -m pytest tests/ -q --no-header
 
 step "acceptance matrix totals"
-"$PY" scripts/acceptance_summary.py
+"$PY" scripts/acceptance_summary.py --check
+
+step "acceptance matrix audit"
+# Totals alone cannot catch a row pointing at a test that no longer exists, or
+# a `verified` label resting on a unit test where the scenario needs a restart
+# or a delivery path. This is the check that makes "no mandatory behaviour
+# falsely marked complete" a gate rather than a claim.
+"$PY" scripts/audit_acceptance.py --check
 
 step "packaging, wheel and image checks"
 LOOP_PACKAGING_TESTS=1 "$PY" -m pytest tests/vnext/test_packaging.py -q --no-header
 
 step "restart durability"
-"$PY" -m pytest tests/vnext/test_run_durability.py -q --no-header
+"$PY" -m pytest tests/vnext/test_run_durability.py \
+  tests/vnext/test_release_e2e.py -q --no-header
 
 printf '\nAll acceptance checks passed.\n'

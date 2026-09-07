@@ -279,9 +279,35 @@ class TriggerService:
             session.commit()
         return bool(result.rowcount)
 
+    def disable_for_subject(self, subject_type: str, subject_id: str, *,
+                            session: Session | None = None) -> int:
+        """Disable all future occurrences for one subject.
+
+        Accepting the caller's session lets task completion/cancellation and
+        reminder suppression commit as one state transition.
+        """
+        now = to_micros(self._clock.now())
+
+        def _disable(active: Session) -> int:
+            result: CursorResult[Any] = active.execute(text(  # type: ignore[assignment]
+                "UPDATE triggers SET enabled = 0, next_fire_at = NULL, "
+                "updated_at = :now, version = version + 1 "
+                "WHERE subject_type = :stype AND subject_id = :sid "
+                "AND enabled = 1"),
+                {"now": now, "stype": subject_type, "sid": subject_id})
+            return int(result.rowcount or 0)
+
+        if session is not None:
+            return _disable(session)
+        with self._sessions() as own:
+            count = _disable(own)
+            own.commit()
+            return count
+
     def claim_occurrence(self, trigger: Trigger, occurrence_key: str, *,
                          nominal_at: dt.datetime,
-                         effective_at: dt.datetime | None = None) -> str | None:
+                         effective_at: dt.datetime | None = None,
+                         session: Session | None = None) -> str | None:
         """Record a firing, or return ``None`` if it already exists.
 
         The unique constraint is the exactly-once mechanism: a concurrent worker,
@@ -292,9 +318,15 @@ class TriggerService:
 
         firing_id = new_id()
         effective = effective_at or nominal_at
-        try:
-            with self._sessions() as session:
-                session.execute(text(
+        def _claim(active: Session) -> str | None:
+            existing = active.execute(text(
+                "SELECT id FROM trigger_firings WHERE trigger_id = :tid "
+                "AND trigger_revision = :rev AND occurrence_key = :key"),
+                {"tid": trigger.id, "rev": trigger.revision,
+                 "key": occurrence_key}).first()
+            if existing is not None:
+                return None
+            active.execute(text(
                     "INSERT INTO trigger_firings (id, trigger_id, "
                     "trigger_revision, occurrence_key, nominal_at, effective_at, "
                     "status, created_at) VALUES (:id, :trigger_id, :revision, "
@@ -306,7 +338,16 @@ class TriggerService:
                     "effective": to_micros(effective),
                     "now": to_micros(self._clock.now()),
                 })
-                session.commit()
+            return firing_id
+
+        if session is not None:
+            return _claim(session)
+
+        try:
+            with self._sessions() as own:
+                result = _claim(own)
+                own.commit()
+                return result
         except IntegrityError:
             # Only a uniqueness collision means "already claimed". A foreign-key
             # or constraint failure is a real error and must not be swallowed as

@@ -245,7 +245,8 @@ class TripCheckDispatcher:
     scheduler: TripMonitorScheduler
 
     def __call__(self, trigger: Any, decision: str,
-                 occurrence_key: str) -> str | None:
+                 occurrence_key: str,
+                 session: Session | None = None) -> str | None:
         # Redundant for *correctness* with the `state_for` lookup below — a
         # routine's subject id has no monitoring row, so it would return None
         # anyway — and kept for cost: this runs for every fired trigger on
@@ -273,7 +274,7 @@ class TripCheckDispatcher:
                 "reason": str(trigger.definition.get("original_local") or ""),
                 "occurrence_key": occurrence_key,
                 "catch_up": decision,
-            })
+            }, session=session)
 
 
 @dataclass
@@ -289,10 +290,11 @@ class CompositeTriggerDispatcher:
     dispatchers: list[Any] = field(default_factory=list)
 
     def __call__(self, trigger: Any, decision: str,
-                 occurrence_key: str) -> list[str]:
+                 occurrence_key: str,
+                 session: Session | None = None) -> list[str]:
         queued: list[str] = []
         for dispatcher in self.dispatchers:
-            result = dispatcher(trigger, decision, occurrence_key)
+            result = dispatcher(trigger, decision, occurrence_key, session)
             if result:
                 queued.append(str(result))
         return queued
