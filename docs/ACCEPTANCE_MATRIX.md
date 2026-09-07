@@ -16,17 +16,17 @@ A green test count is not coverage: a row is `verified` only when its named test
 
 | Stage | Section | Scenarios | verified | implemented | pending |
 |---|---|---:|---:|---:|---:|
-| A | 2. Commitments and everyday interaction | 15 | 8 | 7 | 0 |
+| A | 2. Commitments and everyday interaction | 15 | 9 | 6 | 0 |
 | A | 3. Time, durability and delivery | 17 | 16 | 1 | 0 |
 | B | 4. Knowledge and vault fidelity | 32 | 32 | 0 | 0 |
 | C | 5. Team coordination, privacy and control | 23 | 21 | 2 | 0 |
 | D | 6. Proactivity and learning | 21 | 17 | 4 | 0 |
-| E | 7. Travel itinerary capability | 24 | 18 | 6 | 0 |
-| D | 8. Weather from multiple sources | 24 | 22 | 2 | 0 |
-| C | 9. Capability extensibility | 14 | 12 | 2 | 0 |
-| E | 10. Build, migration, operations and release | 14 | 7 | 7 | 0 |
+| E | 7. Travel itinerary capability | 24 | 19 | 5 | 0 |
+| D | 8. Weather from multiple sources | 24 | 23 | 1 | 0 |
+| C | 9. Capability extensibility | 14 | 13 | 1 | 0 |
+| E | 10. Build, migration, operations and release | 14 | 9 | 5 | 0 |
 | C/E | 11. Standard agent stack | 12 | 12 | 0 | 0 |
-| — | **Total** | **196** | **165** | **31** | **0** |
+| — | **Total** | **196** | **171** | **25** | **0** |
 
 
 ## 2. Commitments and everyday interaction
@@ -49,7 +49,7 @@ Stage **A** · planned milestones **A3–A4, A7**
 | T12 | Extract a meeting action owned by another attendee | Remains that attendee's action; never silently assigned to owner or messaged external… | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t12_*` | verified |
 | T13 | Unsupported execution request, e.g. booking through unavailable adapter | Task preserved; missing capability and next step visible; no success claim | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t13_*` | verified |
 | T14 | Conflicting PATCH calls with same expected_version | First commits; second returns conflict without overwriting | A4 | `loop/services/tasks.py` | `test_tasks.py::test_t14_*` | verified |
-| T15 | Idempotency key reused with a different body | HTTP 409 and no second effect | A3 | `loop/runtime/intake.py` | `test_intake.py::test_t15_*` | implemented |
+| T15 | Idempotency key reused with a different body | HTTP 409 and no second effect | A3 | `loop/runtime/intake.py` | `test_intake.py::test_t15_*`, `test_http.py::test_the_same_key_with_a_different_body_is_a_conflict` | verified |
 
 ## 3. Time, durability and delivery
 
@@ -201,7 +201,7 @@ Stage **E** · planned milestones **E3**
 | TR21 | Private booking/profile context influences research | Local-only propagation; external queries omit identity/reservation codes and unrelate… | E3 | `loop/capabilities/travel/brief.py` | `test_travel.py::test_tr21_*` | verified |
 | TR22 | Explicit preference correction versus one-off itinerary choice | Scoped confirmed preference respected; no permanent habit inferred from a single sele… | E3 | `loop/capabilities/travel/brief.py`, `loop/services/learning.py` | `test_travel.py::test_tr22_*` | verified |
 | TR23 | Unsupported monitoring check, missing option, or exhausted root budget | Visible unavailable/needs_input/partial state; no false active/full-plan claim or hid… | E3 | `loop/capabilities/travel/monitor.py`, `loop/capabilities/travel/options.py` | `test_travel.py::test_tr23_*` | verified |
-| TR24 | Equivalent CLI, Telegram and API requests/replays | Same brief/revision semantics, authenticated versioned mutations and one logical effe… | E3 | `loop/capabilities/travel/trip.py` | `test_travel.py::test_tr24_*` | implemented |
+| TR24 | Equivalent CLI, Telegram and API requests/replays | Same brief/revision semantics, authenticated versioned mutations and one logical effe… | E3 | `loop/capabilities/travel/trip.py` | `test_travel.py::test_tr24_*`, `test_interface_parity.py::test_a_replayed_request_produces_one_logical_effect` | verified |
 
 ## 8. Weather from multiple sources
 
@@ -232,7 +232,7 @@ Stage **D** · planned milestones **D5–D6**
 | WF21 | Privacy-sensitive home/trip context used for forecast | Only needed location/time/fields sent; profiles, addresses as text and reservation co… | D5–D6 | `loop/capabilities/weather/bundle.py` | `test_weather.py::test_wf21_*`, `test_routine_weather_e2e.py::test_only_coordinates_fields_and_a_window_leave_the_process` | verified |
 | WF22 | Add another installed source through vault policy | Shared source registry selects it without planner/bot/scheduler edits; missing adapte… | D5–D6 | `loop/capabilities/weather/sources.py` | `test_weather.py::test_wf22_*` | verified |
 | WF23 | Repeated report or save weather finding | Expiring operational state remains separate; explicit durable capture uses raw/ledger… | D5–D6 | `loop/capabilities/weather/bundle.py` | `test_weather.py::test_wf23_*` | verified |
-| WF24 | CLI/API/bot/departure/travel consume the same bundle | Matching values, labels, source intervals and uncertainty, with no provider-specific… | D5–D6 | `loop/capabilities/weather/bundle.py` | `test_weather.py::test_wf24_*` | implemented |
+| WF24 | CLI/API/bot/departure/travel consume the same bundle | Matching values, labels, source intervals and uncertainty, with no provider-specific… | D5–D6 | `loop/capabilities/weather/bundle.py` | `test_weather.py::test_wf24_*`, `test_interface_parity.py::test_every_surface_asks_weather_the_same_question` | verified |
 
 ## 9. Capability extensibility
 
@@ -246,7 +246,7 @@ Stage **C** · planned milestones **C5–C7**
 | EX04 | Missing/incompatible dependency or cross-pack dependency cycle | Visible blocked availability; no model claim that capability executed | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex04_*` | verified |
 | EX05 | Pure instruction pack with existing tools | No new Python, DB table or custom scheduler required; shared artifact storage and rol… | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex05_*` | verified |
 | EX06 | Workflow invokes registered operations using typed references | DAG/schema validation, shared budget/labels/authority; no eval or unbounded loop | E9 | `loop/runtime/planner.py` | `test_remaining.py::test_ex06_*` | verified |
-| EX07 | Generic invocation via CLI, /do and HTTP | Same validated input/output, authentication, idempotency and error/run envelopes | E9 | `loop/api/service.py` | `test_remaining.py::test_ex07_*`, `test_cli.py::test_do_*`, `test_http.py::test_invoke_*`, `test_telegram.py::test_do_*` | implemented |
+| EX07 | Generic invocation via CLI, /do and HTTP | Same validated input/output, authentication, idempotency and error/run envelopes | E9 | `loop/api/service.py` | `test_remaining.py::test_ex07_*`, `test_cli.py::test_do_*`, `test_http.py::test_invoke_*`, `test_telegram.py::test_do_*`, `test_interface_parity.py::test_the_same_capability_call_returns_the_same_output_everywhere` | verified |
 | EX08 | Pack requests extra recipients, spending or arbitrary direct tool access | Manifest cannot grant authority; executor limits effects to actual request/policy | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex08_*` | verified |
 | EX09 | Enable then disable with queued/in-flight work | New work blocked; pending dependent effects cancelled; in-flight checks respect cance… | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex09_*` | verified |
 | EX10 | Upgrade during a running job, same-version byte change, or restart pending wo… | Exact package/schema version pinned; same-version mutation rejected; unavailable vers… | C5 | `loop/capabilities/registry.py` | `test_registry.py::test_ex10_*` | verified |
@@ -267,8 +267,8 @@ Stage **E** · planned milestones **E4–E7**
 | O04 | Start without optional connectors/models | Status and deterministic tasks/reminders available; dependencies report truthful state | E5 | `loop/ops/doctor.py` | `test_ops_and_packaging.py::test_o04_*` | verified |
 | O05 | Run with wrong Python through setup | Clear version diagnostic before arbitrary import traceback | E5 | `loop/ops/doctor.py` | `test_ops_and_packaging.py::test_o05_*` | implemented |
 | O06 | Migrate populated legacy DB in dry-run then apply | Counts/IDs/completions/privacy/remote links preserved; no implicit old routine activa… | E7 | `loop/db/migrations.py`, `loop/db/legacy.py` | `test_schema_and_migration.py`, `test_ops_and_packaging.py::test_o06_*` | verified |
-| O07 | API and HTML mutations | Same service behavior as Telegram/CLI; authenticated, CSRF-protected forms return 303 | E4 | `loop/api/service.py` | `test_ops_and_packaging.py::test_o07_*` | implemented |
-| O08 | Repeated HTTP mutation and unknown/stale ID | Defined idempotency/conflict/not-found behavior; no duplicate effect | E4 | `loop/api/service.py` | `test_ops_and_packaging.py::test_o08_*` | implemented |
+| O07 | API and HTML mutations | Same service behavior as Telegram/CLI; authenticated, CSRF-protected forms return 303 | E4 | `loop/api/service.py` | `test_ops_and_packaging.py::test_o07_*`, `test_interface_parity.py::test_a_form_post_applies_and_redirects`, `test_interface_parity.py::test_a_form_without_a_csrf_token_is_refused` | verified |
+| O08 | Repeated HTTP mutation and unknown/stale ID | Defined idempotency/conflict/not-found behavior; no duplicate effect | E4 | `loop/api/service.py` | `test_ops_and_packaging.py::test_o08_*`, `test_http.py::test_a_retried_create_applies_once_and_replays_its_answer`, `test_http.py::test_an_unknown_task_is_not_found_and_stays_that_way` | verified |
 | O09 | Backup then isolated restore | Consistent DB+vault+operation manifest, pending jobs recover; no unrelated files over… | E7 | `loop/ops/backup.py` | `test_ops_and_packaging.py::test_o09_*`, `test_release_e2e.py::test_domain_checkpoint_and_vault_*` | verified |
 | O10 | Rebuild indexes after corruption or deletion | Same searchable authorized facts; original state untouched | E7 | `loop/ops/retention.py` | `test_ops_and_packaging.py::test_o10_*` | implemented |
 | O11 | Retention maintenance | Expired content/derivatives removed, active work pinned, ordinary vault evidence pres… | E7 | `loop/ops/retention.py` | `test_ops_and_packaging.py::test_o11_*` | implemented |

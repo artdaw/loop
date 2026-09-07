@@ -387,3 +387,114 @@ def test_recapturing_the_same_note_is_reported_as_a_duplicate(vault_client):
     assert second.json()["data"]["status"] == "duplicate"
     assert second.json()["data"]["path"] == first.json()["data"]["path"]
     assert second.json()["data"]["message"].startswith("Already saved")
+
+
+# --------------------------------------------------------------------------- #
+# Idempotency, conflict and not-found on the real API (T15, O08 — M7)
+# --------------------------------------------------------------------------- #
+def test_a_retried_create_applies_once_and_replays_its_answer(vault_client):
+    """A client retries when it never saw the reply — the task already exists."""
+    body = {"title": "call the repair shop"}
+    headers = {**auth(), "Idempotency-Key": "req-1"}
+
+    first = vault_client.post("/api/v1/tasks", json=body, headers=headers)
+    second = vault_client.post("/api/v1/tasks", json=body, headers=headers)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json()["data"]["id"] == first.json()["data"]["id"]
+    assert any("replayed" in warning for warning in second.json()["warnings"])
+
+    listed = vault_client.get("/api/v1/tasks", headers=auth()).json()["data"]
+    assert len(listed["items"]) == 1, "the retry created a second task"
+
+
+def test_the_same_key_with_a_different_body_is_a_conflict(vault_client):
+    """T15. Replaying the first answer would discard the second request."""
+    headers = {**auth(), "Idempotency-Key": "req-1"}
+    vault_client.post("/api/v1/tasks", json={"title": "first"}, headers=headers)
+
+    clash = vault_client.post("/api/v1/tasks", json={"title": "second"},
+                              headers=headers)
+
+    assert clash.status_code == 409
+    assert clash.json()["error"]["code"] == "conflict"
+    listed = vault_client.get("/api/v1/tasks", headers=auth()).json()["data"]
+    assert [item["title"] for item in listed["items"]] == ["first"]
+
+
+def test_idempotency_survives_a_restart(vault_client, env):
+    """The record must outlive the process that made it.
+
+    A retry happens exactly when the client saw no response, which includes the
+    server dying after it committed. An in-memory record would have forgotten
+    the mutation in the one case that produces retries.
+    """
+    from loop.interfaces.http import app as http_app
+
+    headers = {**auth(), "Idempotency-Key": "req-1"}
+    first = vault_client.post("/api/v1/tasks", json={"title": "survive"},
+                              headers=headers)
+
+    http_app.state.application = None          # a new process, same database
+    restarted = TestClient(http_app)
+    second = restarted.post("/api/v1/tasks", json={"title": "survive"},
+                            headers=headers)
+
+    assert second.json()["data"]["id"] == first.json()["data"]["id"]
+    listed = restarted.get("/api/v1/tasks", headers=auth()).json()["data"]
+    assert len(listed["items"]) == 1
+
+
+def test_a_mutation_without_a_key_is_not_deduplicated(vault_client):
+    """Opting out is allowed; it must not silently behave as if opted in."""
+    body = {"title": "twice"}
+    vault_client.post("/api/v1/tasks", json=body, headers=auth())
+    vault_client.post("/api/v1/tasks", json=body, headers=auth())
+
+    listed = vault_client.get("/api/v1/tasks", headers=auth()).json()["data"]
+    assert len(listed["items"]) == 2
+
+
+def test_an_unknown_task_is_not_found_and_stays_that_way(vault_client):
+    response = vault_client.post("/api/v1/tasks/no-such-id/complete",
+                                 json={"expected_version": 1}, headers=auth())
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+
+
+def test_a_replayed_completion_does_not_complete_twice(vault_client):
+    created = vault_client.post("/api/v1/tasks", json={"title": "done once"},
+                                headers=auth()).json()["data"]
+    headers = {**auth(), "Idempotency-Key": "done-1"}
+
+    first = vault_client.post(f"/api/v1/tasks/{created['id']}/complete",
+                              json={"expected_version": created["version"]},
+                              headers=headers)
+    second = vault_client.post(f"/api/v1/tasks/{created['id']}/complete",
+                               json={"expected_version": created["version"]},
+                               headers=headers)
+
+    assert first.status_code == 200
+    # Without the key this would be a 409: the version moved on when it
+    # completed. The replay returns the original answer instead.
+    assert second.status_code == 200
+    assert second.json()["data"]["version"] == first.json()["data"]["version"]
+
+
+def test_an_empty_idempotency_key_is_no_key_not_a_shared_bucket(vault_client):
+    """An empty header value must not collapse unrelated requests into one.
+
+    A client that sets `Idempotency-Key:` with nothing after it has supplied no
+    key. Storing under the empty string instead would make every such request
+    share one record, so the second unrelated create would replay the first
+    one's answer and quietly never happen.
+    """
+    headers = {**auth(), "Idempotency-Key": ""}
+
+    vault_client.post("/api/v1/tasks", json={"title": "first"}, headers=headers)
+    vault_client.post("/api/v1/tasks", json={"title": "second"}, headers=headers)
+
+    listed = vault_client.get("/api/v1/tasks", headers=auth()).json()["data"]
+    assert sorted(item["title"] for item in listed["items"]) == ["first", "second"]

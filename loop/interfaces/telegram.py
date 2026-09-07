@@ -310,11 +310,17 @@ async def _do(bot: LoopTelegramBot, text: str, args: list[str]) -> str:
     if not isinstance(arguments, dict):
         return "Arguments must be a JSON object."
 
+    # Through the coordinator, exactly as `loop-next do` and the HTTP invoke
+    # route go. Calling `invoker.invoke` directly from here would skip the
+    # coordinator's role-scope, plan authority and operation-ledger checks —
+    # so the same call would carry different authority depending on which
+    # surface it arrived on, which is the drift interfaces §5 forbids.
     context = AuthorityContext(owner="owner", root_id="telegram",
                                privacy=PrivacyLabel(), budget=RootBudget())
-    result = bot.application.invoker.invoke(operation, arguments,
-                                            context=context)
-    return json.dumps(result.output, indent=2, sort_keys=True, default=str)
+    result = bot.application.coordinator.invoke(
+        objective=operation, operation=operation, arguments=arguments,
+        context=context)
+    return json.dumps(result.response, indent=2, sort_keys=True, default=str)
 
 
 # --------------------------------------------------------------------------- #

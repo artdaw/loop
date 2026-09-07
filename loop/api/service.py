@@ -22,11 +22,15 @@ successful POST, so a browser refresh does not repeat the mutation.
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+from sqlalchemy import text
+from sqlalchemy.orm import Session, sessionmaker
 
 from loop.core.errors import Conflict, InvalidInput
 from loop.core.ids import content_hash
@@ -88,6 +92,71 @@ class IdempotencyStore:
                  result: MutationResult) -> None:
         self._records[key] = _Record(
             content_hash(repr(sorted(request.items()))), result)
+
+
+class DurableIdempotencyStore:
+    """The same contract as `IdempotencyStore`, surviving a restart.
+
+    The in-memory store above is right for a single process reasoning about one
+    request. It is wrong for an HTTP API: a client retries precisely when it did
+    not see a response, which includes the case where the server died between
+    applying the mutation and replying. An idempotency record that vanished with
+    the process would let that retry apply the change a second time — the exact
+    failure the key exists to prevent, occurring in the exact circumstances that
+    produce retries.
+
+    Stored per key: the request hash, so reuse with a *different* body is still
+    a client error rather than a silently discarded request, and the response
+    that was actually returned, so a replay answers identically instead of
+    reporting a second "created".
+    """
+
+    def __init__(self, *, sessions: sessionmaker[Session]) -> None:
+        self._sessions = sessions
+        self._ensure_table()
+
+    def _ensure_table(self) -> None:
+        with self._sessions() as session:
+            session.execute(text(
+                "CREATE TABLE IF NOT EXISTS http_idempotency ("
+                " key TEXT PRIMARY KEY,"
+                " request_hash TEXT NOT NULL,"
+                " status_code INTEGER NOT NULL,"
+                " response_json TEXT NOT NULL,"
+                " created_at INTEGER NOT NULL)"))
+            session.commit()
+
+    def lookup(self, key: str, *, request: dict[str, Any]
+               ) -> tuple[int, dict[str, Any]] | None:
+        """The stored response, or None. Raises on reuse with a different body."""
+        with self._sessions() as session:
+            row = session.execute(text(
+                "SELECT request_hash, status_code, response_json"
+                " FROM http_idempotency WHERE key = :key"), {"key": key}).first()
+        if row is None:
+            return None
+        if row[0] != _request_hash(request):
+            raise Conflict(
+                "This idempotency key was already used for a different request.",
+                details={"idempotency_key": key})
+        return int(row[1]), json.loads(row[2])
+
+    def remember(self, key: str, *, request: dict[str, Any], status_code: int,
+                 response: dict[str, Any], now: int) -> None:
+        with self._sessions() as session:
+            session.execute(text(
+                "INSERT OR REPLACE INTO http_idempotency"
+                " (key, request_hash, status_code, response_json, created_at)"
+                " VALUES (:key, :hash, :status, :response, :now)"), {
+                    "key": key, "hash": _request_hash(request),
+                    "status": status_code,
+                    "response": json.dumps(response, sort_keys=True, default=str),
+                    "now": now})
+            session.commit()
+
+
+def _request_hash(request: dict[str, Any]) -> str:
+    return content_hash(json.dumps(request, sort_keys=True, default=str))
 
 
 class ApplicationService:

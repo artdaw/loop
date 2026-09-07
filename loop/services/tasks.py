@@ -30,7 +30,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from loop.core.clock import Clock, SystemClock, to_micros
-from loop.core.errors import Conflict, InvalidInput
+from loop.core.errors import Conflict, InvalidInput, NotFound
 from loop.core.ids import new_id
 from loop.core.privacy import PrivacyLabel
 
@@ -242,7 +242,7 @@ class TaskService:
                 text(f"SELECT {_COLUMNS} FROM tasks WHERE id = :id"),
                 {"id": task_id}).first()
             if current is None:
-                raise InvalidInput(f"No task with id {task_id!r}.")
+                raise NotFound(f"No task with id {task_id!r}.")
             task = _row_to_task(current)
 
             if task.version != expected_version:

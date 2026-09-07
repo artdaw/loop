@@ -29,15 +29,26 @@ that itself requires a live process's secret is not useful to a health probe.
 
 from __future__ import annotations
 
+import hmac
+from collections.abc import Callable
+from html import escape
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, Request
-from fastapi.responses import JSONResponse
+from fastapi import Cookie, Depends, FastAPI, Form, Header, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import text as sql_text
 
 from loop.ai.budget import RootBudget
+from loop.api.service import (
+    POST_REDIRECT_STATUS,
+    CsrfError,
+    DurableIdempotencyStore,
+    issue_csrf_token,
+    verify_csrf_token,
+)
 from loop.app import Application, build_application
+from loop.core.clock import to_micros
 from loop.core.errors import (
     AuthRequired,
     InvalidInput,
@@ -91,6 +102,43 @@ def _ok(data: Any, *, warnings: list[str] | None = None,
     return JSONResponse(status_code=status_code,
                         content={"data": data, "request_id": new_id(),
                                 "warnings": warnings or []})
+
+
+def idempotent(application: Application, key: str | None,
+               request: dict[str, Any],
+               act: Callable[[], tuple[int, dict[str, Any]]]) -> JSONResponse:
+    """Run a mutation at most once per `Idempotency-Key` (T15, O08).
+
+    Three outcomes, and the middle one is the whole point:
+
+    * no key — the caller opted out of the guarantee, so just act;
+    * a key seen with **this** body — replay the stored response without
+      touching anything, because the client is retrying a request whose reply
+      it never saw, and the mutation already happened;
+    * a key seen with a **different** body — 409. Returning the first result
+      would silently discard the second request, and applying it under a used
+      key would defeat the retry guarantee for both.
+
+    The store is durable, not in-process: a client retries precisely when it
+    got no answer, which includes the server dying between committing and
+    replying — the one case an in-memory record would have forgotten.
+    """
+    if not key:
+        status_code, body = act()
+        return _ok(body, status_code=status_code)
+
+    store = DurableIdempotencyStore(sessions=application.sessions)
+    replay = store.lookup(key, request=request)
+    if replay is not None:
+        status_code, body = replay
+        return _ok(body, status_code=status_code,
+                   warnings=["replayed: this idempotency key was already used "
+                             "for this exact request"])
+
+    status_code, body = act()
+    store.remember(key, request=request, status_code=status_code,
+                   response=body, now=to_micros(application.clock.now()))
+    return _ok(body, status_code=status_code)
 
 
 @app.get("/health/live")
@@ -157,18 +205,28 @@ def list_tasks(status: str | None = None,
 
 @app.post("/api/v1/tasks", dependencies=router_dependencies, status_code=201)
 def create_task(payload: CreateTask,
-                application: Application = Depends(get_application)
-                ) -> JSONResponse:
-    task = application.tasks.create(payload.title, due_date=payload.due_date)
-    return _ok(_task_body(task), status_code=201)
+                application: Application = Depends(get_application),
+                idempotency_key: str | None = Header(
+                    default=None, alias="Idempotency-Key")) -> JSONResponse:
+    def act() -> tuple[int, dict[str, Any]]:
+        task = application.tasks.create(payload.title, due_date=payload.due_date)
+        return 201, _task_body(task)
+
+    return idempotent(application, idempotency_key, payload.model_dump(), act)
 
 
 @app.post("/api/v1/tasks/{task_id}/complete", dependencies=router_dependencies)
 def complete_task(task_id: str, payload: CompleteTask,
-                  application: Application = Depends(get_application)
-                  ) -> JSONResponse:
-    task = application.tasks.complete(task_id, expected_version=payload.expected_version)
-    return _ok(_task_body(task))
+                  application: Application = Depends(get_application),
+                  idempotency_key: str | None = Header(
+                      default=None, alias="Idempotency-Key")) -> JSONResponse:
+    def act() -> tuple[int, dict[str, Any]]:
+        task = application.tasks.complete(
+            task_id, expected_version=payload.expected_version)
+        return 200, _task_body(task)
+
+    return idempotent(application, idempotency_key,
+                      {"task_id": task_id, **payload.model_dump()}, act)
 
 
 # --------------------------------------------------------------------------- #
@@ -342,12 +400,87 @@ def invoke_capability(operation: str, payload: InvokeOperation,
                       ) -> JSONResponse:
     """Invoke any enabled operation by name — the same route serves every
     pack, present or future (agent-stack §2)."""
+    # An operation nobody has enabled is `unavailable`, not a validation
+    # failure: the request was well formed and the operation may exist once it
+    # is enabled. Checked here so the API agrees with the CLI and the bot,
+    # which reach the same verdict through the invoker.
+    if operation not in application.known_capabilities():
+        raise Unavailable(f"Required operation {operation!r} is unavailable.",
+                          details={"operation": operation})
+
     context = AuthorityContext(owner="owner", root_id="http", privacy=PrivacyLabel(),
                                budget=RootBudget())
     result = application.coordinator.invoke(
         objective=operation, operation=operation, arguments=payload.arguments,
         context=context)
     return _ok(result.response)
+
+
+# --------------------------------------------------------------------------- #
+# HTML forms (O07)
+# --------------------------------------------------------------------------- #
+# A browser cannot set an Authorization header on a plain form POST, so the UI
+# authenticates with the same token carried as a cookie, and CSRF is bound to
+# that cookie's value. Two separate checks doing two separate jobs: the cookie
+# says *who*, the token says *this form came from a page we served*. A local
+# port is not authentication — anything on the machine, including a page open
+# in the browser, can reach it (interfaces §5).
+UI_COOKIE = "loop_session"
+
+
+def _ui_session(application: Application, session: str | None) -> str:
+    configured = application.settings.api_bearer_token
+    if not configured:
+        raise AuthRequired("No API_BEARER_TOKEN is configured; the UI refuses "
+                           "every request until an operator sets one.")
+    if not session or not hmac.compare_digest(session, configured):
+        raise AuthRequired("Sign in before using the web interface.")
+    return session
+
+
+def _page(body: str) -> HTMLResponse:
+    return HTMLResponse(
+        "<!doctype html><meta charset='utf-8'><title>Loop</title>"
+        "<style>body{font:14px system-ui;margin:2rem;max-width:40rem}"
+        "li{margin:.4rem 0}</style>" + body)
+
+
+@app.get("/ui/tasks", response_class=HTMLResponse)
+def ui_tasks(application: Application = Depends(get_application),
+             loop_session: str | None = Cookie(default=None)) -> HTMLResponse:
+    session = _ui_session(application, loop_session)
+    token = issue_csrf_token(session, secret=application.settings.api_bearer_token)
+
+    rows = []
+    for task in application.tasks.list(status="ready"):
+        rows.append(
+            f"<li>{escape(task.title)} "
+            f"<form method='post' action='/ui/tasks/{escape(task.id)}/complete' "
+            "style='display:inline'>"
+            f"<input type='hidden' name='csrf_token' value='{escape(token)}'>"
+            f"<input type='hidden' name='expected_version' value='{task.version}'>"
+            "<button type='submit'>Done</button></form></li>")
+    listing = "".join(rows) or "<li>Nothing open.</li>"
+    return _page(f"<h1>Tasks</h1><ul>{listing}</ul>")
+
+
+@app.post("/ui/tasks/{task_id}/complete")
+def ui_complete_task(task_id: str,
+                     csrf_token: str = Form(default=""),
+                     expected_version: int = Form(...),
+                     application: Application = Depends(get_application),
+                     loop_session: str | None = Cookie(default=None)
+                     ) -> RedirectResponse:
+    """Apply, then redirect. 303 so a refresh does not repeat the mutation."""
+    session = _ui_session(application, loop_session)
+    try:
+        verify_csrf_token(csrf_token, session_id=session,
+                          secret=application.settings.api_bearer_token)
+    except CsrfError as exc:
+        raise AuthRequired(str(exc)) from exc
+
+    application.tasks.complete(task_id, expected_version=expected_version)
+    return RedirectResponse("/ui/tasks", status_code=POST_REDIRECT_STATUS)
 
 
 def main() -> None:

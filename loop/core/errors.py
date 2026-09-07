@@ -22,6 +22,7 @@ class ErrorCode(str, enum.Enum):
     AUTH_REQUIRED = "auth_required"
     PRIVACY_BLOCKED = "privacy_blocked"
     APPROVAL_REQUIRED = "approval_required"
+    NOT_FOUND = "not_found"
     CONFLICT = "conflict"
     RATE_LIMITED = "rate_limited"
     TIMEOUT = "timeout"
@@ -43,6 +44,7 @@ EXIT_CODES: dict[ErrorCode, int] = {
     ErrorCode.TIMEOUT: 4,
     ErrorCode.PRIVACY_BLOCKED: 4,
     ErrorCode.BUDGET_EXHAUSTED: 4,
+    ErrorCode.NOT_FOUND: 4,
     ErrorCode.CONFLICT: 5,
     ErrorCode.UNKNOWN_EFFECT: 5,
     ErrorCode.INTERNAL_ERROR: 1,
@@ -59,6 +61,7 @@ HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.AUTH_REQUIRED: 401,
     ErrorCode.PRIVACY_BLOCKED: 403,
     ErrorCode.APPROVAL_REQUIRED: 403,
+    ErrorCode.NOT_FOUND: 404,
     ErrorCode.CONFLICT: 409,
     ErrorCode.RATE_LIMITED: 429,
     ErrorCode.TIMEOUT: 504,
@@ -129,6 +132,18 @@ class PrivacyBlocked(LoopError):
 class ApprovalRequired(LoopError):
     """An unexpired, matching approval is needed before executing."""
     code = ErrorCode.APPROVAL_REQUIRED
+
+
+class NotFound(LoopError):
+    """The named thing does not exist, and asking again will not create it.
+
+    Distinct from `InvalidInput` on purpose: a malformed request is worth
+    correcting and retrying, while a missing id is not, and a client that
+    cannot tell them apart either retries forever or gives up on a typo
+    (O08 requires the two be separable).
+    """
+
+    code = ErrorCode.NOT_FOUND
 
 
 class Conflict(LoopError):

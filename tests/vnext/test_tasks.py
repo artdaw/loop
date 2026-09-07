@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from loop.core.errors import Conflict, InvalidInput
+from loop.core.errors import Conflict, InvalidInput, NotFound
 from loop.services.tasks import TaskService
 
 
@@ -228,7 +228,13 @@ def test_updating_an_unknown_field_is_rejected(tasks):
 
 
 def test_updating_a_missing_task_is_rejected(tasks):
-    with pytest.raises(InvalidInput):
+    """`NotFound`, not `InvalidInput`: the request was well formed (O08).
+
+    The distinction is what a client acts on. A malformed request is worth
+    correcting and retrying; a missing id is not, and a caller that cannot
+    tell them apart either retries forever or abandons a typo.
+    """
+    with pytest.raises(NotFound):
         tasks.update("no-such-task", expected_version=1, title="x")
 
 
