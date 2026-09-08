@@ -87,7 +87,7 @@ that does not negate the existing component tests.
 | M4 | Assemble shared application services and wire shipped CLI, HTTP and Telegram; ship validated packs and capability management | Installed command, API and bot handler traverse the same real services; two unrelated packs work without coordinator/channel/schema edits | **done 2026-09-07** |
 | M5 | Connect complete the vault and weather workflows | Natural-language capture → exact raw/ledger → sourced wiki → cited answer; activated routine → weather comparison → advice → outbox after restart | **done 2026-09-07** |
 | M6 | Complete travel research/monitoring, warning adapters, learning and remaining contract interfaces | Real adapter implementations with recorded/fake transports; scoped monitoring; durable preference feedback; unavailable sources explicitly reported | **done 2026-09-07** |
-| M7 | Re-audit all acceptance scenarios and release operation | Installed-package, Docker, real process restart and paired backup/restore checks; reproducible demos; no mandatory behavior falsely marked complete | **done 2026-09-07** — Docker skipped, see below |
+| M7 | Re-audit all acceptance scenarios and release operation | Installed-package, Docker, real process restart and paired backup/restore checks; reproducible demos; no mandatory behavior falsely marked complete | **REOPENED 2026-09-09 — release blocked; execute R0–R6 below** |
 
 Preserve legacy interfaces until their replacements have matching behavior. The CLI
 currently points to cli.main:main; changing imports in a test does not connect the shipped
@@ -158,6 +158,282 @@ Update the supporting matrix only to match that evidence. A missing behavior is 
 even if its old named test is green. Keep all 196 IDs from the acceptance appendix.
 
 ### Current continuation checkpoint
+
+- **Controlling instruction, 2026-09-09:** release is NOT finalized. Execute
+  R0–R6 below in order, preserving completed functionality. These instructions
+  supersede the historical completion/account-blocker claims below and elsewhere
+  in this document. M0–M6 record delivered slices, not blanket contract completion.
+- Latest independent verification (2026-09-08): 2,046 passed / 17 skipped;
+  repository-wide Ruff and mypy passed (226 files); matrix checks passed;
+  working tree clean. Packaging/Docker were not rerun in that review.
+- Known open matrix baseline: 179 verified / 17 implemented. Even verified rows
+  require substantive review: O09/LG11 do not yet prove a consistent snapshot
+  across concurrent domain, checkpoint and vault writers.
+- Exact next step: R0, then R1. Missing provider credentials prohibit live use
+  where authority is required; they do NOT prohibit implementing adapters,
+  workers, or testing them with recorded/fake transports.
+
+#### Mandatory release closure sequence — R0–R6
+
+This is an implementation assignment. Continue until the gates below pass or
+an external prerequisite prevents further progress. Do not stop after updating
+labels, writing tests against disconnected helpers, or completing one slice.
+Do not publish, deploy, book, purchase, send live messages, or use the owner's
+vault/credentials as test fixtures. Release preparation is authorized; release
+publication requires separate instruction.
+
+For each slice, record actual files/migrations, exact commands, outcomes,
+acceptance IDs, remaining defects and the next executable step here. On a reset,
+resume the first incomplete slice. Never replace this document with another plan.
+
+| Slice | Required implementation | Exit evidence | State |
+|---|---|---|---|
+| R0 | Reconcile current checkout and all 196 scenario requirements against production callers, assertions and missing paths. Read the complete scenario text, not truncated matrix cells. | Account for every ID with evidence level, precise test references and unmet clauses. Correct unsupported verified labels and derived totals. | **done 2026-09-09** |
+| R1 | Coordinate backup and isolated restore across domain SQLite, LangGraph checkpoints and vault, including policy and operation records (O09, LG11). | Concurrent-write and real-process recovery tests described below pass; snapshot cannot silently mix application states. | **done 2026-09-09** |
+| R2 | Finish service lifecycle and operational maintenance (D14, O05, O10–O13). | Installed entrypoint tests for shutdown/recovery, diagnostics, retention, rebuilt search and measured synthetic load pass. | pending |
+| R3 | Complete privacy propagation and pack integration (A08, EX14), rechecking execution budgets and authority across public entrypoints. | Full derivative privacy chain and real weather/travel/checklist registry execution prove required outcomes. | pending |
+| R4 | Complete calendar integration and executable scoped travel monitoring (A01, P09–P11, TR15–TR19). | Real adapter/worker implementations run with fake or recorded transports through shared application services, including restart, cancellation and failures. | pending |
+| R5 | Complete all release demonstrations and perform substantive re-audit of every acceptance row after R1–R4. | Reproducible installed-interface transcripts and outcome assertions cover every mandatory contract; no unsupported completion claim. | pending |
+| R6 | Run final install, build, Docker, static, test and recovery gates on the final candidate; synchronize release documentation. | All mandatory gates pass with zero mandatory skips; final report distinguishes implemented, configured and live-tested behavior. | pending |
+
+**R0 — audit discipline.** Existing `audit_acceptance.py` infers evidence level
+from file-wide tokens such as `subprocess`; that cannot prove an individual
+assertion or scenario. Review each named test's setup, actual production caller,
+and persisted result. Strengthen the audit to detect missing/duplicate IDs and
+stale references and to distinguish recorded evidence from heuristic hints.
+Use the complete 17-row baseline: D14, A01, A08, P09, P10, P11, TR15, TR16,
+TR17, TR18, TR19, EX14, O05, O10, O11, O12, O13. This is a minimum list:
+newly discovered mandatory defects also block release.
+
+#### R0 result — audit strengthened, and what it found
+
+**The audit no longer guesses from files.** `scripts/audit_acceptance.py` now
+parses each *named test* with `ast` and resolves what that function reaches
+through both its fixtures and the module-level helpers it calls. The previous
+version read tokens anywhere in the file, so one `import subprocess` made every
+row pointing into that file look like it proved a restart — a hint about a
+file presented as evidence about a scenario.
+
+The correction moved real numbers, in both directions: process evidence
+18 → 11, interface 14 → 11, application 2 → 13. The old counts were not merely
+optimistic; they were wrong about which tests carried which weight. Two further
+checks were added: every specification ID must appear in the matrix exactly
+once (a dropped or duplicated row silently changes the denominator), and stale
+references are reported per row rather than in aggregate.
+
+Nine `verified` rows were flagged when helper-following was still missing
+(T01, T08, D06, D11, D16, P07, WF21, O02, O14). All nine were re-checked by
+reading the tests: each genuinely reaches its level through a helper such as
+`_run_cli` or `_restart_and_sweep`. The analysis was extended rather than the
+labels changed — the tests were right and the tool was wrong. No `verified`
+label was found unsupported, and the derived totals stand at 179/17.
+
+**The 17-row baseline, with the unmet clause and the slice that closes it.**
+The pattern is consistent and worth naming: for O05 and O10–O13 the logic
+exists in `loop/ops/` and has *no production caller at all*. `check_python`,
+`rebuild_index`, `plan_retention`, `LoadReport` and `ServiceHealth` are
+imported by nothing outside their own tests. These are precisely the "tests
+against disconnected helpers" this slice was told to look for.
+
+| ID | Evidence today | Unmet clause | Slice |
+|---|---|---|---|
+| O05 | component; `check_python` has no caller | no shipped entry point runs the version diagnostic before heavy imports | R2 |
+| O10 | component; `rebuild_index` has no caller | never rebuilds the real `vault_fts` index from authorised sources | R2 |
+| O11 | component; `plan_retention` has no caller | never runs against stored content or derivatives | R2 |
+| O12 | component; `LoadReport` has no caller | no measurement of real persistence/queue latency; a report constructed with `source_count=500` is not a load test | R2 |
+| O13 | component; `ServiceHealth` has no caller | `status` reports counts, never a persisted heartbeat or catch-up limit | R2 |
+| D14 | component (`JobQueue` lease only) | SIGTERM followed by forced kill, and a fresh process reconciling, are never exercised | R2 |
+| A08 | component | no end-to-end private capture → wiki → answer → task → summary with labels asserted at each hop | R3 |
+| EX14 | component | weather and travel are **not packs** — `packs/` holds only bikeservice and plantcare; no checklist extension exists | R3 |
+| A01 | component | needs bounded parallel calendar/weather/knowledge reads through one coordinator | R4 |
+| P09 | component | no calendar adapter under `loop/`; reschedule cannot cancel stale reminders | R4 |
+| P10 | component | no two-provider path, so partial failure cannot retain successful results | R4 |
+| P11 | component | outage-notice deduplication is not durable | R4 |
+| TR15 | application (scheduling only) | no consumer of `trip.check` jobs exists — monitoring schedules work nothing executes | R4 |
+| TR16 | component | no worker to produce a material-change notice or a no-change result | R4 |
+| TR17 | component | quote-basis comparison never runs in a check | R4 |
+| TR18 | component | confirmed-booking anchoring never runs in a check | R4 |
+| TR19 | application (cancellation only) | atomicity with obsolete-alert cancellation not proven through the worker | R4 |
+
+**Newly discovered, beyond the given baseline:** `loop/ops/backup.py` snapshots
+the two SQLite files and the vault independently, so nothing establishes
+cross-store consistency — the concern R1 names, confirmed present. No
+additional defect was found that changes the slice plan.
+
+**Exact next step:** R1.
+
+**R1 — backup correctness.** Current `create_backup` independently snapshots
+two SQLite files and copies the vault. Per-file hashes detect corruption but
+cannot establish cross-store consistency. Implement a supported quiescence or
+coordinated snapshot protocol shared by every application writer; include a
+defined procedure for external vault edits. Refuse or retry a snapshot when
+consistency cannot be established. Do not claim that SQLite's per-database
+backup API supplies cross-database atomicity. Converge the CLI and legacy
+`PairedBackup` paths on the same contract or explicitly retire unsupported paths.
+Validate manifest version, required parts, confined paths, symlinks, hashes and
+restore destination before writes. Protect private backup content and include
+all configured vault state; exclude credentials. Restore defaults to dry-run.
+Test with real WAL databases, an interrupted real coordinator, pending jobs,
+operation outcomes and a synthetic vault; restore into an empty directory in
+a new process, resume pinned work and prove no duplicate effect. Cover a writer
+racing the snapshot, tampering, missing parts, path escape, failure partway
+through backup/restore, and existing destination files. Hash equality alone is
+not the exit assertion. Verify forgetting actually removes/invalidate relevant
+checkpoint derivatives, not merely returns a list of affected run IDs.
+
+#### R1 result — a snapshot that proves itself, or refuses
+
+`create_backup` copied three stores in sequence and hashed each. Every part was
+individually valid and the set described three different moments; the damage
+that causes is invisible, because nothing about a torn backup looks wrong until
+it is restored and a job has no checkpoint.
+
+**`loop/ops/snapshot.py`** implements the protocol the slice asked for, and
+does not claim more than SQLite gives:
+
+1. **Admission control.** `SnapshotBarrier` is a durable row every writer
+   checks. `LoopService.tick()` and `RoutineJobWorker.run_one()` decline to
+   start new work while it is held — they do not abandon work in flight. It is
+   deliberately *not* a lock around the copy: holding one across a large vault
+   would stall the service for the length of the backup and invite exactly the
+   timeouts that make people switch backups off.
+2. **Drain**, supplied by the caller and bounded by the barrier's TTL, so a
+   crashed backup cannot stop the service permanently.
+3. **Proof.** `PRAGMA data_version` changes when *any* connection commits,
+   including one this process knows nothing about — a second instance, or a
+   person with a shell. Directories have no counter, so the vault is
+   fingerprinted before and after instead.
+4. **Retry, then refuse.** `SnapshotRefused` says what to do. A torn backup is
+   worse than none, because it is trusted exactly when everything else has
+   already failed.
+
+**The bug this slice existed to find, found by its own test.** The first
+implementation opened a fresh read connection for each probe. `data_version`
+only reports changes made by *other* connections since **this** connection last
+read it, so a new connection per probe always compares equal — the check passed
+while detecting nothing, which is the worst possible failure mode for a
+consistency check. `ConsistencyWatch` now holds one connection open across the
+attempt. `test_a_fresh_reading_per_probe_would_have_detected_nothing` pins the
+broken version's behaviour, because it is the one a reader would write by
+default.
+
+**Validation beyond hashes.** `verify_backup` refuses a manifest from a newer
+build, one missing the database part, a part whose path escapes the backup
+directory (the manifest is data and must not choose where restore writes), and
+any symlinked part — checked before `resolve()`, which would otherwise follow
+the link and report it as its target. Restore already defaulted to dry-run and
+refuses a non-empty target; both are now covered.
+
+**Recovery is proven in a new process.** A backup taken with a pending job and
+a task is restored into an empty directory, and a separate interpreter opens it
+and finds both, with the vault intact. The original is asserted untouched.
+
+`PairedBackup` in `loop/runtime/runs.py` remains as the checkpoint-pair helper
+used by `test_run_durability.py`; the shipped `loop-next backup` path is the
+coordinated one, and it is the only path the CLI offers.
+
+**Remaining for R1's scope:** the manifest records `attempts` and a
+`coordinated` flag, so a backup taken without a barrier is identifiable rather
+than indistinguishable. Forgetting-versus-checkpoint-derivatives is not yet
+proven and is carried into R2 with the rest of the retention work.
+
+**Exact next step:** R2.
+
+**R2 — release operations.** Exercise SIGTERM during active work followed by
+forced process termination and a new process reclaiming leases. Stop admission
+and new effects on shutdown; bound worker draining and preserve unknown sends.
+Verify leader renewal and fencing during slow workers, rather than only idle
+shutdown. Wire truthful persisted heartbeat/catch-up reporting into shipped
+status. Provide setup diagnostics for unsupported Python before heavy imports.
+Rebuild a corrupt/deleted real search index from authorized sources and compare
+retrieval results without altering originals. Execute retention against real
+stored content/derivatives, preserving active references and ordinary vault
+evidence. Measure actual persistence and queue claims with 500 synthetic sources
+and timer load; report hardware, queue depth, p50/p95 and specified target
+comparisons. A report initialized with `source_count=500` is not a load test.
+Fix release-test date dependencies rather than excluding a failing legacy test
+as outside scope. Preserve compatible legacy interfaces.
+
+**R3 — privacy and extensibility.** Trace private raw capture through compiled
+wiki, retrieval, task, child/repair and final summary; assert persisted labels,
+destination enforcement and zero cloud calls on local failure. Exercise the
+real gateway/graph and public service seams. Register weather and travel as
+actual packs alongside a small checklist extension; prove discovery, schema
+validation, enable/run/disable, shared executor, artifacts and version pinning
+without coordinator/channel/domain-specific branches. Schema objects named
+after packs alone do not satisfy EX14.
+
+**R4 — providers and monitoring.** Implement the missing `trip.check` worker
+and connect it to the shipped daemon/one-shot dispatch. A queued check must
+produce a persisted success, no-change, partial/unavailable, or failure result.
+Recheck approved scope, trip/revision, cancellation, lease and root budget
+before reads/effects. Persist evidence and use the normal notification policy
+and outbox; deduplicate material changes and suppress obsolete alerts. Cover
+changed quote bases, fixed bookings, selection changes and atomic cancellation.
+Implement documented calendar/travel provider transports and normalization with
+configuration checks; credentials are injected and fixtures exercise real
+adapter logic. Missing credentials yield explicit unavailable status and zero
+unauthorized requests. Calendar partial failures retain successful results;
+reschedules cancel stale reminders and outage notices deduplicate durably.
+If a provider cannot support a required operation, record the exact missing
+interface and finish independent work; do not relabel mandatory implementation
+as optional merely because a live account is absent. Provider selection that
+requires spending or new contractual authority must be surfaced before live use.
+
+**R5 — acceptance and demos.** Provide executable transcripts for task →
+restart → reminder → snooze/complete, capture → compile → retrieve,
+research → save, weather → override, feedback → proposal/confirmation,
+travel → compare/revise/select/monitor/save, weather local/compare/fallback,
+and capability scaffold/validate/test/enable/run/disable. Use the installed
+entrypoints, synthetic data, fake clocks/models/transports, and real framework
+execution. Assert durable results and citations, not just exit codes or call
+counts. Kill an actual process in crash scenarios. Mark optional configuration
+absence separately only where the contract allows it and the failure path is
+implemented and tested. All remaining mandatory clauses must close.
+
+**R6 — final gates.** Run the commands below against the final candidate.
+**Docker is the very last release check**, after implementation, documentation,
+all non-Docker tests, wheel installation, recovery checks and demos are complete.
+Before running the release runner, update `scripts/acceptance_run.sh` to run
+packaging with `-k 'not o03'` and move the Docker-only `-k o03` invocation to
+its final verification step, after the demo. The runner must print success
+only after Docker passes. Do not let Docker availability delay R0–R5 or the
+non-Docker checks. The final runner invocation below repeats those checks and
+ends with Docker; do not run another verification gate afterward.
+Run shellcheck on changed shell scripts. Inspect packaging prerequisites first;
+the packaging suite must not recurse into itself or turn unavailable Docker
+into a successful release gate. Keep normal hermetic tests convenient, but make
+the explicit release gate fail if a mandatory build/test is skipped. Docker
+must build and run as non-root with writable mounted state, no secrets, the
+correct daemon, packaged assets/packs, and restart persistence. An unavailable
+Docker host is a remaining external prerequisite, not a completed gate. Wheel
+tests must run outside the checkout and discover shipped packs without relying
+on the checkout's working directory.
+
+```bash
+rtk proxy uv sync --locked --extra dev
+rtk proxy uv run --locked ruff check .
+rtk proxy uv run --locked mypy . --exclude '^build/'
+rtk proxy uv run --locked pytest tests/
+rtk proxy uv run --locked python scripts/acceptance_summary.py --check
+rtk proxy uv run --locked python scripts/audit_acceptance.py --check
+rtk proxy uv build
+rtk proxy env LOOP_PACKAGING_TESTS=1 .venv/bin/python -m pytest tests/vnext/test_packaging.py -k 'not o03'
+rtk git diff --check
+rtk git status --short
+rtk proxy bash scripts/acceptance_run.sh
+```
+
+Record new tests/demos added by R1–R5 in the release runner so later releases
+repeat them. Update README/setup/run instructions to match the installed
+commands, supported behavior and actual configuration. Final report: commit or
+working-tree identity tested, scenario evidence, exact check outcomes/skips,
+supported versus configured providers, migration/backup recovery results,
+demo commands, and every remaining mandatory blocker. Set M7 complete only
+when R0–R6 satisfy these gates. Never equate a passing script with release
+readiness while its required behaviors or builds remain unverified.
+
+#### Historical checkpoint before the 2026-09-09 release re-opening
 
 - State: **M0–M7 done**, plus three post-M7 bundles of acceptance work
   (interface parity, reminder interaction, condition routines). Docker checks

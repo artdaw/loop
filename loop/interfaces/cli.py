@@ -33,6 +33,7 @@ from loop.core.errors import LoopError
 from loop.core.privacy import PrivacyLabel
 from loop.db.migrations import applied_revisions
 from loop.ops.backup import BackupError, create_backup, restore_backup, verify_backup
+from loop.ops.snapshot import SnapshotRefused
 from loop.runtime.authority import AuthorityContext
 from loop.runtime.checkpointer import open_production_checkpointer
 from loop.runtime.coordinator_worker import CoordinatorJobWorker
@@ -143,11 +144,20 @@ def backup(output: Annotated[Path, typer.Option("--output")]) -> None:
             created_at=int(application.clock.now().timestamp()),
             schema_revision=sorted(revisions)[-1] if revisions else "",
             pending_jobs=int(pending["jobs"]),
-            pending_outbox=int(pending["outbox"]))
+            pending_outbox=int(pending["outbox"]),
+            # Coordinated: the sweep and workers stop admitting new work, and
+            # the snapshot is refused rather than written if a writer still
+            # commits underneath it (O09/LG11).
+            barrier=application.barrier,
+            drain=lambda: application.service.run_once(max_sweeps=1))
+    except SnapshotRefused as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=5) from exc
     except (BackupError, OSError) as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=2) from exc
-    typer.echo(f"backup written to {output} ({len(manifest.parts)} parts)")
+    typer.echo(f"backup written to {output} ({len(manifest.parts)} parts, "
+               f"coordinated in {manifest.attempts} attempt(s))")
 
 
 @app.command("restore")

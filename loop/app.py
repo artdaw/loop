@@ -58,6 +58,7 @@ from loop.core.clock import Clock, SystemClock
 from loop.core.settings import Settings
 from loop.db.migrations import migrate
 from loop.db.session import create_db_engine, session_factory
+from loop.ops.snapshot import SnapshotBarrier
 from loop.runtime.condition_dispatch import (
     ConditionDispatcher,
     ConditionEdges,
@@ -133,6 +134,7 @@ class Application:
     messages: MessageService
     actions: CallbackActions
     observations: ObservationStore
+    barrier: SnapshotBarrier
     conditions: ConditionDispatcher
     registry: CapabilityRegistry
     artifacts: ArtifactStore
@@ -209,6 +211,10 @@ def build_application(settings: Settings | None = None, *,
     operations = OperationLedger(sessions=sessions, clock=clock)
     runs = RunStore(sessions=sessions, clock=clock)
 
+    # Every writer checks this before admitting new work, so a coordinated
+    # snapshot can prove nothing changed underneath it (O09/LG11). Built early
+    # because the sweep and the workers all take it.
+    barrier = SnapshotBarrier(sessions=sessions, clock=clock)
     routines = RoutineService(sessions=sessions, clock=clock)
     preferences = PreferenceStore(sessions=sessions)
     trips = TripStore(sessions=sessions, clock=clock)
@@ -261,7 +267,7 @@ def build_application(settings: Settings | None = None, *,
     routine_worker = RoutineJobWorker(
         jobs=jobs, routines=routines, invoker=invoker, outbox=outbox,
         notifications=notifications, clock=clock,
-        default_destination=settings.telegram_chat_id)
+        default_destination=settings.telegram_chat_id, barrier=barrier)
 
     # Condition routines fire on the edge, and the edge is stored: a restart
     # that forgot it would turn "still true" into "newly true" and announce
@@ -307,7 +313,8 @@ def build_application(settings: Settings | None = None, *,
         TripCheckDispatcher(jobs=jobs, scheduler=trip_monitor)])
 
     service = LoopService(sessions=sessions, clock=clock, triggers=triggers,
-                          jobs=jobs, outbox=outbox, on_trigger=dispatchers)
+                          jobs=jobs, outbox=outbox, on_trigger=dispatchers,
+                          barrier=barrier)
     coordinator_worker = CoordinatorJobWorker(jobs=jobs, coordinator=coordinator)
 
     # A routine activated in a process that died before writing its trigger is
@@ -329,7 +336,7 @@ def build_application(settings: Settings | None = None, *,
         vault_search=vault_search, knowledge=knowledge,
         routine_scheduler=routine_scheduler, routine_worker=routine_worker,
         trip_monitor=trip_monitor, feedback=feedback, messages=messages,
-        actions=actions, observations=observations,
+        actions=actions, observations=observations, barrier=barrier,
         conditions=conditions,
         registry=registry, artifacts=artifacts,
         invoker=invoker, roles=roles, operations=operations, runs=runs,

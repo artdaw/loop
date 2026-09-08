@@ -17,10 +17,16 @@ import json
 import logging
 import shutil
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from loop.core.ids import content_hash
+from loop.ops.snapshot import (
+    MAX_ATTEMPTS,
+    SnapshotBarrier,
+    coordinated_snapshot,
+)
 from loop.runtime.runs import secure_checkpoint_file
 
 logger = logging.getLogger(__name__)
@@ -47,6 +53,10 @@ class BackupManifest:
     parts: list[BackupPart] = field(default_factory=list)
     pending_jobs: int = 0
     pending_outbox: int = 0
+    #: How many attempts the coordinated snapshot needed. 0 means the backup
+    #: was taken without a barrier, so its parts are individually valid but
+    #: nothing establishes that they describe the same moment.
+    attempts: int = 0
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -54,6 +64,8 @@ class BackupManifest:
             "schema_revision": self.schema_revision,
             "pending_jobs": self.pending_jobs,
             "pending_outbox": self.pending_outbox,
+            "attempts": self.attempts,
+            "coordinated": self.attempts > 0,
             "parts": [{"name": p.name, "relative_path": p.relative_path,
                        "sha256": p.sha256, "byte_count": p.byte_count}
                       for p in self.parts],
@@ -65,7 +77,8 @@ class BackupManifest:
                        created_at=int(payload["created_at"]),
                        schema_revision=str(payload.get("schema_revision", "")),
                        pending_jobs=int(payload.get("pending_jobs", 0)),
-                       pending_outbox=int(payload.get("pending_outbox", 0)))
+                       pending_outbox=int(payload.get("pending_outbox", 0)),
+                       attempts=int(payload.get("attempts", 0)))
         manifest.parts = [BackupPart(p["name"], p["relative_path"], p["sha256"],
                                      int(p["byte_count"]))
                           for p in payload.get("parts", [])]
@@ -134,16 +147,62 @@ def create_backup(*, database: Path, vault: Path, journal: Path | None,
                   destination: Path, created_at: int,
                   schema_revision: str, pending_jobs: int = 0,
                   pending_outbox: int = 0,
-                  checkpoints: Path | None = None) -> BackupManifest:
-    """Write one verifiable domain/checkpoint/vault backup (O09/LG11)."""
+                  checkpoints: Path | None = None,
+                  barrier: SnapshotBarrier | None = None,
+                  drain: Callable[[], object] | None = None,
+                  attempts: int = MAX_ATTEMPTS) -> BackupManifest:
+    """Write one verifiable domain/checkpoint/vault backup (O09/LG11).
+
+    Pass `barrier` to take the three stores under one coordinated snapshot.
+    Without it the parts are still individually valid and hashed, but nothing
+    establishes that they describe the *same moment* — so the shipped command
+    always supplies one, and only unit fixtures omit it.
+    """
     if destination.exists() and any(destination.iterdir()):
         raise BackupError(
             f"backup destination {destination} is not empty; use a fresh directory")
     destination.mkdir(parents=True, exist_ok=True)
-    manifest = BackupManifest(version=MANIFEST_VERSION, created_at=created_at,
-                              schema_revision=schema_revision,
-                              pending_jobs=pending_jobs,
-                              pending_outbox=pending_outbox)
+
+    if barrier is not None:
+        stores = {"database": database}
+        if checkpoints is not None and checkpoints.exists():
+            stores["checkpoints"] = checkpoints
+        trees = ({"vault": lambda: _tree_hash(vault)[0]}
+                 if vault.exists() else {})
+        attempted = coordinated_snapshot(
+            barrier=barrier, databases=stores, trees=trees, drain=drain,
+            attempts=attempts, reason="backup",
+            copy=lambda: _write_parts(
+                manifest=_fresh_manifest(created_at, schema_revision,
+                                         pending_jobs, pending_outbox),
+                database=database, vault=vault, journal=journal,
+                checkpoints=checkpoints, destination=destination))
+        logger.info("Coordinated snapshot took %d attempt(s)", len(attempted))
+        manifest = read_manifest(destination)
+        manifest.attempts = len(attempted)
+        (destination / MANIFEST_NAME).write_text(
+            json.dumps(manifest.to_json(), indent=2, sort_keys=True))
+        return manifest
+    return _write_parts(
+        manifest=_fresh_manifest(created_at, schema_revision, pending_jobs,
+                                 pending_outbox),
+        database=database, vault=vault, journal=journal,
+        checkpoints=checkpoints, destination=destination)
+
+
+def _fresh_manifest(created_at: int, schema_revision: str, pending_jobs: int,
+                    pending_outbox: int) -> BackupManifest:
+    return BackupManifest(version=MANIFEST_VERSION, created_at=created_at,
+                          schema_revision=schema_revision,
+                          pending_jobs=pending_jobs,
+                          pending_outbox=pending_outbox)
+
+
+def _write_parts(*, manifest: BackupManifest, database: Path, vault: Path,
+                 journal: Path | None, checkpoints: Path | None,
+                 destination: Path) -> BackupManifest:
+    """Copy every part and write the manifest. Re-runnable within a retry."""
+    manifest.parts.clear()
 
     if not database.exists():
         raise BackupError(f"database not found: {database}")
@@ -183,13 +242,62 @@ def read_manifest(backup_dir: Path) -> BackupManifest:
     return BackupManifest.from_json(json.loads(path.read_text()))
 
 
+#: Parts a restorable backup must carry. A manifest without the database
+#: describes something that cannot be restored, however well its other parts
+#: hash.
+REQUIRED_PARTS = ("database",)
+
+
+def _confined(backup_dir: Path, relative: str) -> Path | None:
+    """Resolve a manifest path inside the backup, or None if it escapes.
+
+    The manifest is data, and a backup can arrive from anywhere. A part naming
+    `../../.ssh/authorized_keys` would otherwise be written there by restore —
+    the manifest choosing the destination rather than the operator.
+    """
+    if Path(relative).is_absolute():
+        return None
+    root = backup_dir.resolve()
+    candidate = (root / relative).resolve()
+    if candidate != root and root not in candidate.parents:
+        return None
+    return candidate
+
+
 def verify_backup(backup_dir: Path) -> list[str]:
-    """Re-hash every part. Returns the problems found, empty when intact."""
+    """Validate structure, paths and hashes. Empty means restorable.
+
+    Hash equality alone is not enough: a tampered manifest can be internally
+    consistent, name paths outside the backup, or omit the database entirely.
+    """
     manifest = read_manifest(backup_dir)
     problems: list[str] = []
 
+    if manifest.version > MANIFEST_VERSION:
+        problems.append(
+            f"manifest version {manifest.version} is newer than this build "
+            f"understands ({MANIFEST_VERSION})")
+
+    present = {part.name for part in manifest.parts}
+    for required in REQUIRED_PARTS:
+        if required not in present:
+            problems.append(f"{required}: required part is missing from the manifest")
+
     for part in manifest.parts:
-        target = backup_dir / part.relative_path
+        # Checked before resolving: `Path.resolve` follows the link, so a
+        # symlink would otherwise be reported as whatever it points at.
+        literal = backup_dir / part.relative_path
+        if literal.is_symlink() or (literal.is_dir()
+                                    and any(child.is_symlink()
+                                            for child in literal.rglob("*"))):
+            problems.append(f"{part.name}: contains a symlink")
+            continue
+
+        target = _confined(backup_dir, part.relative_path)
+        if target is None:
+            problems.append(
+                f"{part.name}: path {part.relative_path!r} escapes the backup")
+            continue
         if not target.exists():
             problems.append(f"{part.name}: missing from the backup")
             continue

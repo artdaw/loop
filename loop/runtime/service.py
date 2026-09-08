@@ -144,8 +144,8 @@ class LoopService:
                  jobs: JobQueue | None = None,
                  outbox: NotificationOutbox | None = None,
                  worker_id: str | None = None,
-                 on_trigger: Callable[[Any, str, str, Session | None], object] | None = None
-                 ) -> None:
+                 on_trigger: Callable[[Any, str, str, Session | None], object] | None = None,
+                 barrier: Any = None) -> None:
         self._sessions = sessions
         self._clock = clock or SystemClock()
         self.triggers = triggers or TriggerService(sessions=sessions, clock=self._clock)
@@ -153,6 +153,9 @@ class LoopService:
         self.outbox = outbox or NotificationOutbox(sessions=sessions, clock=self._clock)
         self.worker_id = worker_id or new_id()
         self.leader = LeaderLease(sessions=sessions, clock=self._clock)
+        #: Admission control during a coordinated snapshot. Optional so every
+        #: existing test that builds a bare service keeps working.
+        self.barrier = barrier
         #: Called when a trigger fires, with the trigger, the catch-up
         #: decision and the *occurrence key* that was just claimed.
         #:
@@ -170,6 +173,13 @@ class LoopService:
     def tick(self) -> TickReport:
         """Process everything currently due, once. Never calls a model."""
         report = TickReport()
+
+        if self.barrier is not None and self.barrier.held():
+            # A snapshot is running. In-flight work finishes; nothing new is
+            # admitted, which is what lets the backup prove consistency
+            # instead of racing us (O09/LG11).
+            report.details.append("snapshot in progress; not admitting work")
+            return report
 
         if not self.leader.acquire():
             report.details.append("not leader; skipping sweep")

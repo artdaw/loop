@@ -310,7 +310,8 @@ class RoutineJobWorker:
                  notifications: NotificationManager,
                  owner: str = "owner", default_destination: str = "",
                  clock: Clock | None = None,
-                 budget_limits: BudgetLimits | None = None) -> None:
+                 budget_limits: BudgetLimits | None = None,
+                 barrier: Any = None) -> None:
         self.jobs = jobs
         self.routines = routines
         self.invoker = invoker
@@ -320,12 +321,15 @@ class RoutineJobWorker:
         self.default_destination = default_destination
         self._clock = clock or SystemClock()
         self._limits = budget_limits or BudgetLimits()
+        self.barrier = barrier
 
     # ------------------------------------------------------------------ #
     # One job
     # ------------------------------------------------------------------ #
     def run_one(self, *, worker_id: str | None = None) -> RoutineOutcome | None:
         """Claim and run one routine job, or return None if none is due."""
+        if self.barrier is not None and self.barrier.held():
+            return None          # a snapshot is running; admit nothing new
         job = self.jobs.claim(worker_id or new_id(), kinds=[ROUTINE_KIND])
         if job is None:
             return None
