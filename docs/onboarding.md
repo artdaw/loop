@@ -10,6 +10,13 @@ leave your machine or mix with anyone else's.
 
 ---
 
+> **Two stacks, one repository.** This guide sets up the original `loop`
+> commands. The vNext stack ships alongside it as `loop-next` — durable tasks
+> and reminders, the vault capture/compile/answer workflow, routines, weather
+> and the learning loop. Once you have finished here, `loop-next status` works
+> immediately and `scripts/demo.sh` walks the whole surface on a throwaway
+> vault. See the README's [what works today](../README.md#what-works-today-loop-next).
+
 ## 1. What you're setting up
 
 Loop is a small stack that runs entirely on your own hardware:

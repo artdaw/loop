@@ -110,13 +110,23 @@ def test_a_reminder_offers_done_snooze_and_dismiss(bot):
 
 
 def test_the_button_carries_an_opaque_id_and_nothing_else(bot):
-    """Encoding the task or the action would let an edited callback retarget."""
+    """Encoding the task or the action would let an edited callback retarget.
+
+    Asserted as a shape rather than by hunting for substrings: a random id can
+    contain "60" by coincidence, and a test that fails on a coincidence gets
+    deleted rather than believed. A bare UUID cannot carry a payload at all.
+    """
+    import re
+
+    uuid = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                      r"[0-9a-f]{4}-[0-9a-f]{12}$")
     task, actions = a_reminder(bot)
 
+    assert len(set(actions.values())) == 3, "the three buttons share an id"
     for kind, action_id in actions.items():
+        assert uuid.match(action_id), f"{kind} id is not an opaque uuid"
         assert task.id not in action_id
         assert kind not in action_id
-        assert "snooze" not in action_id and "60" not in action_id
 
 
 # --------------------------------------------------------------------------- #

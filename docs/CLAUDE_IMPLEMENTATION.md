@@ -159,23 +159,31 @@ even if its old named test is green. Keep all 196 IDs from the acceptance append
 
 ### Current continuation checkpoint
 
-- State: **M0–M7 done**, with the Docker checks explicitly unverified on this
-  machine (see below). All seven milestones have dated evidence rows.
-- Next action: nothing is blocked. The remaining work is the named gaps below,
-  none of which is a milestone exit criterion: no fare/availability/schedule
-  provider, no trip-check worker, no observation/nowcast adapter, the unwired
-  `observations.py` condition path, and the remaining HTTP/Telegram routes.
+- State: **M0–M7 done**, plus three post-M7 bundles of acceptance work
+  (interface parity, reminder interaction, condition routines). Docker checks
+  remain explicitly unverified on this machine (see below).
+- Next action: nothing is blocked. What remains splits in two, and the split is
+  the point:
+  - **Blocked without an account, not by effort** — calendar providers (A01,
+    P09–P11) and travel fares, availability and monitoring (TR15–TR19). The
+    contract forbids shipping an adapter that incurs charges before configured
+    budget authority exists, so these cannot be closed by writing code.
+  - **Finishable** — the ops-hardening rows (O10–O13, D14: index rebuild after
+    corruption, retention, 500-source load, halted service, SIGTERM then forced
+    stop). No credentials needed.
 - Fresh checks this session: `scripts/acceptance_run.sh` passes end to end —
-  lint, types, 1,981 passed / 17 skipped, matrix totals, matrix audit,
+  lint, types, 2,046 passed / 17 skipped, matrix totals, matrix audit,
   packaging and wheel, restart durability, and a 30-check demo through the
-  installed `loop-next`. Re-run, not inherited.
+  installed `loop-next`. Ruff and mypy clean across 226 files. Re-run, not
+  inherited.
 - **Docker: skipped, not verified.** The six image checks in
   `tests/vnext/test_packaging.py` skip because the daemon is not running on
-  this machine. They are not claimed as passing. To run them:
+  this machine. They are not claimed as passing anywhere. To run them:
   `open -a Docker && LOOP_PACKAGING_TESTS=1 .venv/bin/python -m pytest
   tests/vnext/test_packaging.py -k o03`.
-- The acceptance matrix now reads **165 verified / 31 implemented**, not the
-  inherited 196/196. That difference is the re-audit's actual finding.
+- The acceptance matrix reads **179 verified / 17 implemented**. It arrived
+  claiming 196/196; the re-audit took it to 165, and the three bundles since
+  earned the rest back with evidence at the level each row demands.
 - Decisions: approved review governs readiness; Edward is presentation advice only.
 
 #### Note: a pre-existing, unrelated test flake observed this session
@@ -185,6 +193,101 @@ system date advanced past a week boundary; the module computes its window from
 `date.today()`. Confirmed via `git diff` that neither file was touched this session. Not
 fixed, since it is outside every current milestone's scope and is a legacy-code date
 dependency, not a regression.
+
+#### Post-M7: three bundles of acceptance work
+
+Chosen by the owner from a triaged list, with the blocked rows named rather
+than attempted. Committed one bundle at a time, so an interrupted session loses
+nothing in flight.
+
+**Interface parity (T15, O07, O08, EX07, TR24, WF24).** Every other test in the
+suite exercises one surface at a time and therefore cannot see two surfaces
+drifting apart. `tests/vnext/test_interface_parity.py` performs the same
+operation three ways and compares the outcomes *against each other* — a parity
+test asserting three hardcoded strings passes happily while all three surfaces
+are wrong together. It found two real defects on its first run:
+
+1. **Telegram's `/do` bypassed the coordinator**, calling the invoker directly
+   and so skipping role scope, plan authority and the operation ledger. The
+   same capability call carried different authority depending on which surface
+   it arrived on.
+2. **An unknown operation was 422 over HTTP** and `unavailable` on the other
+   two. A well-formed request for a capability nobody enabled is not a
+   validation failure.
+
+Durable idempotency on the API: `Idempotency-Key` replays the stored response
+for the same body and returns 409 for a different one. Durable rather than
+in-process because a client retries precisely when it saw no response, which
+includes the server dying between committing and replying — the one case an
+in-memory record would have forgotten. An empty key is treated as no key, since
+storing under the empty string would make unrelated requests share one record.
+
+A new `NotFound` error type (404). There was no not-found code at all, so a
+missing id was reported as a malformed request; the distinction is what a
+client acts on. An HTML surface at `/ui/tasks` completes O07 with CSRF-bound
+forms and a 303 after a successful POST — the cookie says who, the token says
+the form came from a page we served, and listening on localhost is not
+authentication.
+
+**Reminder interaction (T04–T07, T09, T10).** `interpret.py` shipped complete
+and connected to nothing, so every interface understood only explicit commands.
+`loop/services/messages.py` calls it, reached from Telegram (any non-command
+text), `loop-next say`, and `POST /api/v1/messages`. Its responsibilities
+beyond routing: never claim a reminder that was not set; complete the *waiting*
+task rather than creating a second one; keep pending clarifications durable,
+because the gap between "later" and the answer outlives a deploy; and never
+guess a missing half — a wall time with no day stays a question.
+
+One design bug found while testing: an open question swallowed the next message
+whatever it was, so "remember that production takes six weeks" was read as an
+answer to "when?", losing the fact and resolving the question with nonsense.
+
+`loop/services/actions.py` gives a delivered reminder its buttons. Callback data
+is client-controllable, so the button carries **an opaque id and nothing else**;
+which task, which occurrence, who may press it and until when are stored and
+looked up. Four checks per press — unknown, wrong actor, expired, already
+consumed — and consuming is a conditional UPDATE, because two taps arriving
+together would both pass a read-then-check. Snooze creates a *replacement
+occurrence* (a delivered message cannot be un-sent); dismiss suppresses the
+message and pointedly does not complete the errand; acknowledgement follows the
+effect, since it stops Telegram's spinner and must not precede the work.
+
+A real bug: issuing buttons opened its own session inside the trigger-firing
+transaction and deadlocked SQLite. They now commit with the notification, which
+is also the correct semantics — a button committed without its message would be
+pressable while referring to a reminder nobody received.
+
+**Condition routines (P05, WF09).** `observations.py` shipped complete and
+unreachable: a routine with `trigger.kind: condition` could be written,
+validated and activated while never running.
+`loop/runtime/condition_dispatch.py` evaluates them and queues work on a
+transition into true — **with the edge stored**. `EdgeState` is an in-memory
+dataclass; held only in memory, a restart forgets the condition was already
+announced, sees `unknown → true`, and tells the owner again. P05's condition
+"remains true through repeated sensor updates", and a deploy is just another
+update from where the owner sits. That failure repeats forever and is invisible
+to any test that never restarts.
+
+Two latent bugs surfaced there: `ObservationStore.current` ordered only by
+`valid_from`, so two observations written in the same microsecond came back in
+arbitrary order and the older value could win — a sensor update silently
+failing to take effect; and the occurrence identity was derived from the clock,
+so two genuine edges inside one tick collapsed into a single job.
+
+WF09 needed a product that did not exist: every shipped weather source was an
+hourly model, so "fresh observations but no forecast" could not occur.
+`OpenMeteoCurrentAdapter` reads the `current` block as a `ProductType.OBSERVATION`,
+kept separate from the forecast adapter because product type, freshness rule and
+horizon all differ. `WeatherService` now selects the observation tier
+separately at horizon zero — an observation cannot answer a three-hour question
+and is rightly excluded from the forecast selection, but every briefing also
+implicitly asks what it is doing *now*, and selecting one tier only is what made
+a 503 from every model read as "no data" while a good measurement sat unused.
+The brief now states that these are present conditions and that nothing in it
+describes later.
+
+Mutation totals across the three bundles: 43 run, 38 killed, 5 recorded as
+redundancies (documented in comments) rather than papered over with a test.
 
 #### M7: the re-audit, and what it actually found
 
@@ -921,6 +1024,9 @@ Confirmed still open at M0, by inspection of the actual source:
 
 | Date | Milestone / acceptance IDs | Files and commands | Result and evidence level | Remaining / next |
 |---|---|---|---|---|
+| 2026-09-07 | Post-M7 bundle 3: condition routines (P05, WF09) | `loop/runtime/condition_dispatch.py` (new), `loop/capabilities/weather/adapters/open_meteo.py` (`OpenMeteoCurrentAdapter`), `loop/capabilities/weather/service.py` (observation tier), `bundle.py` (present-vs-future), `loop/services/observations.py` (tie-break); `tests/vnext/test_condition_routines_e2e.py` (11), weather e2e (+2); 14 mutations run, 12 killed | 2,046 passed / 17 skipped; Ruff + mypy clean (226 files); full gate green. Edge state durable across restart; two latent bugs fixed (same-microsecond observation ordering, clock-derived occurrence identity). | Ops hardening (O10–O13, D14) |
+| 2026-09-07 | Post-M7 bundle 2: reminder interaction (T04–T07, T09, T10) | `loop/services/messages.py` (new), `loop/services/actions.py` (new), `loop/services/reminders.py` (`attach`), `loop/interfaces/telegram.py` (callbacks, free text), `cli.py` (`say`), `http.py` (`/messages`); `tests/vnext/test_messages_e2e.py` (16), `test_callback_actions_e2e.py` (14); 20 mutations verified | Natural language reaches the same services as commands; buttons carry opaque ids and are validated four ways. Two real bugs fixed: an open question swallowed unrelated messages; issuing buttons deadlocked SQLite. | Condition routines |
+| 2026-09-07 | Post-M7 bundle 1: interface parity (T15, O07, O08, EX07, TR24, WF24) | `tests/vnext/test_interface_parity.py` (new, 15), `loop/api/service.py` (`DurableIdempotencyStore`), `loop/interfaces/http.py` (idempotency, `/ui/tasks`), `telegram.py` (coordinator routing), `loop/core/errors.py` (`NotFound`); 12 mutations verified | Found two real defects no single-surface test could see: Telegram's `/do` bypassed the coordinator's authority checks, and unknown operations disagreed across surfaces. | Reminder interaction |
 | 2026-09-07 | M7: acceptance re-audit and release operation | `scripts/audit_acceptance.py` (new), `scripts/demo.sh` (new), `scripts/acceptance_run.sh` (audit + demo added to the gate), `Dockerfile` (entry point), `docs/ACCEPTANCE_MATRIX.md` (statuses and test references); `tests/vnext/test_routine_weather_e2e.py` (+2, mutation-verified) | `scripts/acceptance_run.sh` green end to end: lint, types, 1,981 passed / 17 skipped, matrix totals, matrix audit, packaging + wheel, restart durability, 30-check installed-command demo. Matrix re-audited from an inherited 196/196 to **165 verified / 31 implemented**. **Docker: 6 image checks skipped, daemon not running — not verified.** | Named gaps only; no milestone criterion outstanding |
 | 2026-09-07 | M6 part 5: scoped trip monitoring | `loop/runtime/trip_monitor.py` (new: `TripMonitorScheduler`, `TripCheckDispatcher`, `CompositeTriggerDispatcher`), `loop/app.py`; `tests/vnext/test_trip_monitor_e2e.py` (18 tests); 12 mutations run, 11 killed, 1 documented redundancy; 1 real defect found (per-trip dedupe key collapsing every checkpoint into one job) | 1,973 passed / 16 skipped in declared **and** randomised order; Ruff + mypy clean (215 files). Checkpoints become durable one-shot triggers carrying the approved check scope; cancellation stops both the checks and the notices. | M7 |
 | 2026-09-07 | M6 part 4: remaining interfaces | `loop/interfaces/telegram.py` (12 new commands, honest `/help`), `loop/runtime/outbox.py` (`defer_for_subject`), `loop/interfaces/cli.py` (`learning`); `tests/vnext/test_telegram.py` (+18), `test_outbox.py` (+4), `test_cli.py` (+5); 14 mutations verified | 1,955 passed / 16 skipped in declared **and** randomised order; Ruff + mypy clean (213 files). `/snooze` moves the queued occurrence *and* records the timing signal; `/why` explains only from what was recorded. | M7 |

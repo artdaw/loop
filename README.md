@@ -22,8 +22,13 @@ and progress ledger. Superseded execution documents are preserved in
 [the dated archive](docs/archive/pre-consolidation-2026-09-06/README.md).
 Specification 1.3 standardizes the [agent stack](docs/specification/agent-stack.md)
 on LangChain and LangGraph, with generic capability runners and durable recovery.
-This is the target design; the legacy setup and feature descriptions below do
-not imply that vNext is implemented.
+
+**vNext is now implemented** and ships as `loop-next`, alongside the legacy
+`loop` command described further down. Milestones M0–M7 are complete: the
+composition root, durable coordinator and workers, persistent stores, the three
+interfaces, the vault and weather workflows, real adapters, the learning loop
+and the release gate. See [what works today](#what-works-today-loop-next) for
+the honest state, including what is deliberately not built.
 
 Loop watches the tools you already use — Gmail, Outlook, Google/Outlook Calendar,
 Wrike, Obsidian — and delivers reminders and follow-ups where you already live:
@@ -36,6 +41,78 @@ The two pain points that drive every design decision:
 |---|---|
 | Forgotten meetings | 30-min + 5-min reminders and an 08:00 morning briefing |
 | Un-followed-up emails | Flags stalled threads and drafts a follow-up for your approval |
+
+---
+
+## What works today (`loop-next`)
+
+`loop-next` is the vNext stack. It is a **separate entry point** rather than a
+replacement for `loop`: the legacy CLI's autonomy, sync, voice and metrics
+commands have no vNext equivalent yet, and interfaces are kept until their
+replacements match their behaviour.
+
+```bash
+uv sync
+loop-next status          # works with nothing configured at all
+```
+
+| Command | What it does |
+|---|---|
+| `loop-next status` | Pending triggers, jobs and messages; enabled capabilities; configuration limitations, stated plainly |
+| `loop-next say "<text>"` | An ordinary sentence — captures a fact, saves a task, or asks the one question it needs |
+| `loop-next remind <text>` | Persist a task and its reminder before confirming it |
+| `loop-next task add/list/complete` | Durable commitments with optimistic versioning |
+| `loop-next vault capture/compile/ask/reindex` | Exact capture → sourced wiki page → cited answer |
+| `loop-next routine add/list/activate/pause` | Recurring routines; saving is not activating |
+| `loop-next learning review/confirm/forget/snooze` | What Loop has inferred, and what it proposes — never applied on its own |
+| `loop-next capability list/enable/disable` | Capability packs, discovered from `packs/` |
+| `loop-next do <operation> <json>` | Invoke any enabled capability; adding a pack needs no new command |
+| `loop-next run once [--sweep-only]` | Sweep, run queued work, deliver |
+| `loop-next run daemon` | The durable scheduler and workers until SIGTERM |
+| `loop-next backup --output <dir>` / `restore --from <dir> --target <dir>` | Domain state, graph checkpoints and vault as one verified pair |
+| `loop-next-api` | HTTP API (bearer token required, even on localhost) |
+| `loop-next-telegram` | The Telegram bot |
+
+Three interfaces, **one service**. The CLI, the HTTP API and the bot construct
+their services from a single `build_application()`, so they cannot drift into
+separate ideas of what completing a task means. `tests/vnext/test_interface_parity.py`
+does the same operation three ways and compares the results against each other.
+
+### Try it
+
+```bash
+scripts/demo.sh          # 30 checks through the installed commands, on a throwaway vault
+scripts/acceptance_run.sh # the full release gate
+```
+
+`demo.sh` drives `loop-next` itself, so it fails when a shipped command drifts
+from what the walkthrough claims — which a transcript in a document cannot do.
+Steps needing a network or an account are named and skipped rather than omitted.
+
+### What is deliberately not built
+
+An unconfigured provider is a fact about your machine; a missing one is a fact
+about the software. These are the second kind, and they are named rather than
+stubbed:
+
+- **No fare, availability or transport-schedule provider.** Every source worth
+  trusting needs an account, and an adapter that incurs charges requires
+  configured budget authority first. A missing price is reported as a missing
+  *provider*, never as a search that found nothing.
+- **No calendar or mail transport on the vNext stack yet** — those still live
+  in the legacy commands.
+- **Telegram**: `/remind`, `/travel`, `/trips`, `/briefing`, `/cancel`, voice
+  notes and inline-button delivery are not wired. `/help` names them as
+  unavailable rather than leaving you to discover it.
+- **HTTP**: search, research, weather, trips, approvals, memory, activity and
+  policy routes are absent.
+
+Acceptance status is tracked row by row in
+[the acceptance matrix](docs/ACCEPTANCE_MATRIX.md): **179 of 196 scenarios
+verified**, 17 `implemented` (code exists; the scenario is not proven at the
+level its required result demands). `scripts/audit_acceptance.py` enforces that
+distinction on every release run, so a `verified` label cannot quietly outrun
+its evidence.
 
 ---
 
@@ -109,10 +186,14 @@ cp config/.env.example .env
 ```
 
 ### 3a. Run with Docker (recommended)
-Pulls the local models, starts ChromaDB, and runs the app:
+Pulls the local models, starts ChromaDB, and runs the app. The image's default
+command is the **vNext scheduler** (`loop-next run daemon`), which sweeps
+triggers, drains routine and coordinator jobs, and releases its leader lease on
+SIGTERM:
 ```bash
 docker compose up -d
-docker compose run --rm app loop briefing
+docker compose run --rm app loop-next status
+docker compose run --rm app loop briefing      # the legacy CLI, still available
 ```
 
 ### 3b. Run locally (without Docker)
@@ -160,9 +241,13 @@ Knowledge Specialist on every new/modified `.md` file.
 Proactive reminders and follow-up prompts are sent via
 `TeamsBot.send_proactive(conversation_ref, message)`.
 
-### CLI commands
+### Legacy CLI commands (`loop`)
 
-Start the Telegram bot locally with `loop telegram`. It accepts messages only
+These are the Phase 1–4 commands. They are preserved because their vNext
+replacements do not yet match them — see
+[what works today](#what-works-today-loop-next) for the `loop-next` surface.
+
+Start the legacy Telegram bot locally with `loop telegram`. It accepts messages only
 from `TELEGRAM_CHAT_ID` and supports `/status`, `/briefing`, `/task <text>`,
 `/tasks`, and `/done <id>`. Plain text is sent to Loop's assistant; private-chat
 questions are forced through the local model. In Docker, the `app` service runs
@@ -205,6 +290,22 @@ the bot automatically.
 | **3 — Depth & Peers** | Roll out to peers, get smarter | ✅ complete | Per-user packaging, Anthropic fallback tuning, conflict detection, email triage scoring, conversation memory, `ask` command, interactive web UI |
 | **4 — Polish & Automation** | Act more autonomously | ✅ complete | Autonomy levels (a second gate, orthogonal to privacy), weekly review, project-context awareness, Wrike bidirectional sync (remote-wins), local voice-to-note, metrics dashboard, first test suite |
 
+### vNext milestones (`loop-next`)
+
+| Milestone | Focus | Status |
+|---|---|---|
+| **M0–M1** | Role-scoped coordinator, typed plans, structured output, Reviewer repair | ✅ done |
+| **M2** | Async graph lifecycle, secure checkpoints, durable worker dispatch, child runs | ✅ done |
+| **M3** | Eight in-memory stores replaced by durable repositories | ✅ done |
+| **M4** | Composition root; CLI, HTTP API and Telegram over shared services; shipped packs | ✅ done |
+| **M5** | Capture → ledger → sourced wiki → cited answer; routine → weather → advice → outbox, across a real process restart | ✅ done |
+| **M6** | CAP warning adapters, travel research providers, the learning loop, scoped trip monitoring | ✅ done |
+| **M7** | Acceptance re-audit, release gate, reproducible demo | ✅ done |
+
+Remaining work is tracked as named gaps rather than phases — see
+[what is deliberately not built](#what-is-deliberately-not-built) and the
+`implemented` rows in [the acceptance matrix](docs/ACCEPTANCE_MATRIX.md).
+
 ---
 
 ## Configuration reference
@@ -225,6 +326,31 @@ All settings live in `.env` (see `config/.env.example`). Highlights:
 - **Weekly review (Phase 4):** `WEEKLY_REVIEW_DAY`, `WEEKLY_REVIEW_TIME`
 - **Wrike sync (Phase 4):** `WRIKE_SYNC_MINUTES`, `WRIKE_FOLDER_ID`
 - **Voice-to-note (Phase 4):** `WHISPER_MODEL_SIZE`, `WHISPER_DEVICE`, `WHISPER_COMPUTE_TYPE`
+- **vNext HTTP API:** `HTTP_BIND`, `HTTP_PORT`, `API_BEARER_TOKEN` — blank by
+  default, so a fresh install refuses every request rather than opening itself
+- **vNext capability discovery:** `CAPABILITY_PATHS` (defaults to
+  `packs`, `capabilities`, `data/capabilities`)
+
+### Behaviour lives in the vault, not in `.env`
+
+Deployment configuration is environment; *personal behaviour* is the owner's to
+edit without a deploy, and it is personal data besides. So named locations and
+official warning feeds are read from the vault manifest
+(`_ctx/loop/manifest.yaml`), not from environment variables:
+
+```yaml
+locations:
+  home:
+    latitude: 52.52
+    longitude: 13.405
+    timezone: Europe/Berlin
+warning_feeds:
+  - country: de          # MeteoAlarm, per ISO 3166-1 alpha-2 code
+    language: en
+```
+
+Unconfigured means the warning state stays `unknown` — never an all-clear from
+a feed nobody chose.
 
 Secrets are never committed — `.env`, `credentials.json`, and `token.json` are gitignored.
 
@@ -296,16 +422,51 @@ with the action, level, and outcome — never the content.
 ## Development
 
 ```bash
-uv venv --python 3.12       # if you have not created the environment yet
-source .venv/bin/activate
-uv pip install -e ".[dev]"
-pytest          # 288 tests, hermetic: no network, model, keys, or .env
+uv sync                     # or: uv venv --python 3.12 && uv pip install -e ".[dev]"
+pytest          # 2,046 tests, hermetic: no network, model, keys, or .env
 ruff check .
 mypy .
 ```
 
 Tests use temp SQLite databases and fakes throughout — nothing in the suite
-needs a running model, a vault, or a Wrike key.
+needs a running model, a vault, or an account.
+
+### The release gate
+
+```bash
+scripts/acceptance_run.sh
+```
+
+Runs, failing cheapest first: lint, types, the hermetic suite, the acceptance
+matrix totals, the **matrix audit**, packaging and wheel checks, restart
+durability, and the demo through the installed commands.
+
+`scripts/audit_acceptance.py` is the part worth knowing about. A green suite is
+not coverage, so it asks two things of every acceptance row: does the test it
+names actually exist and get collected, and does that test run at the level the
+row's required result demands? A scenario needing a restart, a delivered
+message or a shipped command cannot be `verified` by a unit test. Both answers
+come from pytest and the test files themselves, never from the label.
+
+Docker checks skip when the daemon is not running, and they are reported as
+skipped rather than counted as passing:
+
+```bash
+open -a Docker && LOOP_PACKAGING_TESTS=1 pytest tests/vnext/test_packaging.py -k o03
+```
+
+### Conventions in this codebase
+
+- **Durable by default.** Anything a restart must not forget — idempotency
+  records, condition edges, pending clarifications, callback buttons — lives in
+  SQLite, not in a process. The failures that motivate this are in the commit
+  messages, which are worth reading.
+- **Never claim what did not happen.** A capture says "saved" only when the
+  file *and* the ledger row exist; an unconfigured provider is reported, not
+  omitted; an uncertain send stays uncertain rather than being resent.
+- **Mutation-tested where it matters.** New behaviour is checked by breaking it
+  deliberately and confirming a test fails. Survivors are either fixed with a
+  real test or recorded in a comment as a known redundancy.
 
 ---
 
