@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "answer": {"type": "string"},
+    "headline": {"type": "string"},
+    "summary": {"type": "array", "items": {"type": "string"}},
+    "preparation": {"type": "array", "items": {"type": "string"}},
+    "uncertainty": {"type": "array", "items": {"type": "string"}},
+    "sources": {"type": "array", "items": {"type": "string"}},
+    "bundle_id": {"type": "string"},
+    "checked_at": {"type": "number"}
+  },
+  "required": ["answer", "sources"],
+  "additionalProperties": true
+}

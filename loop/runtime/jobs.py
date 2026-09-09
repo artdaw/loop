@@ -73,6 +73,7 @@ class Job:
     run_after: int = 0
     deadline_at: int | None = None
     last_error_code: str | None = None
+    result: dict[str, Any] | None = None
 
 
 class StaleLeaseError(Conflict):
@@ -278,12 +279,13 @@ class JobQueue:
     # ------------------------------------------------------------------ #
     # Completion
     # ------------------------------------------------------------------ #
-    def succeed(self, job: Job) -> None:
+    def succeed(self, job: Job, *, result: dict[str, Any] | None = None) -> None:
         """Mark a job succeeded, only if the worker still holds the lease."""
         self.require_lease(job)
-        self._finish(job, "succeeded", None)
+        self._finish(job, "succeeded", None, result=result)
 
     def fail(self, job: Job, *, code: ErrorCode,
+             result: dict[str, Any] | None = None,
              rand: random.Random | None = None) -> str:
         """Record a failure and decide whether to retry.
 
@@ -294,7 +296,7 @@ class JobQueue:
         exhausted = job.attempts >= job.max_attempts
 
         if permanent or exhausted:
-            self._finish(job, "failed", code.value)
+            self._finish(job, "failed", code.value, result=result)
             return "failed"
 
         now = to_micros(self._clock.now())
@@ -303,9 +305,10 @@ class JobQueue:
             session.execute(text(
                 "UPDATE jobs SET state = 'retry_wait', run_after = :run_after, "
                 "lease_owner = NULL, lease_until = NULL, last_error_code = :code, "
-                "updated_at = :now, version = version + 1 "
+                "result_json = :result, updated_at = :now, version = version + 1 "
                 "WHERE id = :id AND fencing_token = :token"
             ), {"run_after": now + delay * 1_000_000, "code": code.value,
+                "result": json.dumps(result, sort_keys=True) if result else None,
                 "now": now, "id": job.id, "token": job.fencing_token})
             session.commit()
         return "retry_wait"
@@ -322,14 +325,18 @@ class JobQueue:
             session.commit()
         return bool(result.rowcount)
 
-    def _finish(self, job: Job, state: str, code: str | None) -> None:
+    def _finish(self, job: Job, state: str, code: str | None, *,
+                result: dict[str, Any] | None = None) -> None:
         now = to_micros(self._clock.now())
         with self._sessions() as session:
             session.execute(text(
                 "UPDATE jobs SET state = :state, lease_owner = NULL, "
-                "lease_until = NULL, last_error_code = :code, updated_at = :now, "
+                "lease_until = NULL, last_error_code = :code, result_json = :result, "
+                "updated_at = :now, "
                 "version = version + 1 WHERE id = :id AND fencing_token = :token"
-            ), {"state": state, "code": code, "now": now, "id": job.id,
+            ), {"state": state, "code": code,
+                "result": json.dumps(result, sort_keys=True) if result else None,
+                "now": now, "id": job.id,
                 "token": job.fencing_token})
             session.commit()
 
@@ -341,7 +348,8 @@ class JobQueue:
             row = session.execute(text(
                 "SELECT id, kind, payload_json, dedupe_key, state, attempts, "
                 "max_attempts, fencing_token, lease_owner, lease_until, "
-                "run_after, deadline_at, last_error_code FROM jobs WHERE id = :id"
+                "run_after, deadline_at, last_error_code, result_json "
+                "FROM jobs WHERE id = :id"
             ), {"id": job_id}).first()
         if row is None:
             return None
@@ -349,4 +357,5 @@ class JobQueue:
                    dedupe_key=row[3], state=row[4], attempts=row[5],
                    max_attempts=row[6], fencing_token=row[7], lease_owner=row[8],
                    lease_until=row[9], run_after=row[10], deadline_at=row[11],
-                   last_error_code=row[12])
+                   last_error_code=row[12],
+                   result=json.loads(row[13]) if row[13] else None)

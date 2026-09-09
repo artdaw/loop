@@ -243,6 +243,10 @@ class Job(Base, IdentityMixin):
     lease_until: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     fencing_token: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_error_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Durable, structured evidence of what the worker concluded.  Keeping the
+    # result on the fenced job row makes completion and its evidence one
+    # transaction; a returned Python object alone disappears on restart.
+    result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("dedupe_key", name="uq_jobs_dedupe"),

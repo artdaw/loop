@@ -15,6 +15,24 @@ has matching behaviour (main spec §10, agent-stack migration note).
 
 from __future__ import annotations
 
+# O05: checked before anything heavy is imported. An unsupported interpreter
+# otherwise surfaces as an ImportError from deep inside a dependency, which
+# sends people debugging the wrong thing entirely. Only stdlib is touched
+# above this point, so the diagnostic can always run.
+import sys
+
+# noqa: UP036 — Ruff reads this as dead code because the project *targets*
+# 3.12. That is exactly backwards: this branch exists for the interpreter that
+# is not 3.12, where the target says nothing. Removing it restores the
+# unreadable ImportError this is here to prevent.
+if sys.version_info[:2] < (3, 12):  # noqa: UP036  # pragma: no cover
+    sys.stderr.write(
+        f"Loop needs Python 3.12 or newer; this is "
+        f"{sys.version_info[0]}.{sys.version_info[1]}. Install a newer "
+        f"interpreter and re-run `uv sync --locked`.\n")
+    raise SystemExit(4)
+
+
 import asyncio
 import datetime as dt
 import json
@@ -29,6 +47,9 @@ import typer
 from loop.agents.coordinator import Coordinator
 from loop.ai.budget import RootBudget
 from loop.app import Application, build_application
+from loop.capabilities.conformance import report_text, run_conformance
+from loop.capabilities.registry import load_manifest
+from loop.capabilities.scaffold import scaffold_pack, scaffold_summary
 from loop.core.errors import LoopError
 from loop.core.privacy import PrivacyLabel
 from loop.db.migrations import applied_revisions
@@ -42,6 +63,7 @@ from loop.runtime.routines import parse_routine
 from loop.runtime.runs import checkpoint_path
 from loop.services.feedback import summarise
 from loop.services.knowledge import KnowledgeService
+from loop.services.maintenance import rebuild_search_index
 
 app = typer.Typer(name="loop-next", add_completion=False,
                   help="Loop vNext — the durable coordinated stack.")
@@ -51,12 +73,14 @@ capability_app = typer.Typer(help="Capability pack discovery and enablement.")
 run_app = typer.Typer(help="The durable service sweep.")
 routine_app = typer.Typer(help="Recurring routines the owner has approved.")
 vault_app = typer.Typer(help="The knowledge vault: capture, compile, search.")
+maintenance_app = typer.Typer(help="Operational maintenance: retention, index, load.")
 learn_app = typer.Typer(help="What Loop has learned, and what it proposes.")
 app.add_typer(task_app, name="task")
 app.add_typer(capability_app, name="capability")
 app.add_typer(run_app, name="run")
 app.add_typer(routine_app, name="routine")
 app.add_typer(vault_app, name="vault")
+app.add_typer(maintenance_app, name="maintenance")
 app.add_typer(learn_app, name="learning")
 
 
@@ -94,6 +118,15 @@ def status() -> None:
     if pending["unknown"]:
         typer.echo(f"outbox with unknown delivery: {pending['unknown']}")
     typer.echo(f"enabled capabilities: {', '.join(enabled) or 'none'}")
+
+    # O13: a live process is not a running service. This reports what the
+    # last sweep actually recorded, and names the catch-up limit rather than
+    # implying continuous availability.
+    health = application.service.health()
+    typer.echo(health.describe())
+    if health.stale_seconds is not None and not health.is_running:
+        typer.echo(f"catch-up limit: {health.catch_up_limit_seconds // 3600}h "
+                   "— older missed occurrences are skipped, not replayed")
     for limitation in limitations:
         typer.echo(f"note: {limitation}")
 
@@ -231,6 +264,41 @@ def capability_list() -> None:
                    f"{entry.manifest.title}")
 
 
+@capability_app.command("init")
+def capability_init(pack_id: str, output: Path,
+                    role: str = typer.Option("daily_life", "--role"),
+                    mode: str = typer.Option("agent", "--mode"),
+                    version: str = typer.Option("1.0.0", "--version")) -> None:
+    """Scaffold an inert capability pack without overwriting files."""
+    try:
+        result = scaffold_pack(pack_id, output=output, role=role, mode=mode,
+                               version=version)
+    except LoopError as exc:
+        _fail(exc)
+        return
+    typer.echo(scaffold_summary(result))
+
+
+@capability_app.command("validate")
+def capability_validate(package: Path) -> None:
+    """Validate a pack manifest and all referenced schemas."""
+    manifest, problems = load_manifest(package.resolve())
+    if manifest is None:
+        for problem in problems:
+            typer.echo(f"error: {problem}", err=True)
+        raise typer.Exit(code=2)
+    typer.echo(f"{manifest.pack_key} valid ({len(manifest.operations)} operation(s))")
+
+
+@capability_app.command("test")
+def capability_test(package: Path) -> None:
+    """Run a pack's examples offline with no credentials or persistence."""
+    report = run_conformance(package)
+    typer.echo(report_text(report))
+    if not report.ok:
+        raise typer.Exit(code=1)
+
+
 @capability_app.command("enable")
 def capability_enable(pack_id: str, version: str) -> None:
     application = _app()
@@ -275,7 +343,8 @@ def run_once(sweep_only: bool = typer.Option(
     # rather than with the work the sweep queues.
     conditions = [] if sweep_only else application.conditions.sweep()
     outcomes = [] if sweep_only else application.routine_worker.run_due()
-    if outcomes or any(outcome.fired for outcome in conditions):
+    trip_checks = [] if sweep_only else application.trip_worker.run_due()
+    if outcomes or trip_checks or any(o.fired for o in conditions):
         reports.extend(application.service.run_once())
 
     sent = sum(r.notifications_sent for r in reports)
@@ -283,6 +352,11 @@ def run_once(sweep_only: bool = typer.Option(
     typer.echo(f"{len(reports)} sweep(s); {fired} trigger(s) fired; "
               f"{len(outcomes)} routine(s) run; {sent} notification(s) sent"
               + (f"; {failed} undeliverable" if failed else ""))
+    for check in trip_checks:
+        typer.echo(f"  trip {check.trip_id}: {check.outcome}"
+                   + (f" — {check.reason}" if check.reason else ""))
+        for name, why in sorted(check.checks_unavailable.items()):
+            typer.echo(f"      {name}: unavailable — {why}")
     for condition in conditions:
         if condition.fired:
             typer.echo(f"  {condition.slug}: condition became true")
@@ -322,6 +396,7 @@ async def _run_daemon(interval_seconds: float) -> None:
                 application.service.run_once()
                 application.conditions.sweep()
                 application.routine_worker.run_due()
+                application.trip_worker.run_due()
                 while await coordinator_worker.run_one() is not None:
                     pass
                 try:
@@ -490,6 +565,72 @@ def vault_reindex() -> None:
     application = _app()
     knowledge = _knowledge(application)
     typer.echo(f"{knowledge.reindex()} document(s) indexed")
+
+
+# --------------------------------------------------------------------------- #
+# Operational maintenance (O10-O12)
+# --------------------------------------------------------------------------- #
+@maintenance_app.command("rebuild-index")
+def maintenance_rebuild_index() -> None:
+    """Rebuild the search index from the vault after corruption or deletion.
+
+    The vault is the authority and the index is derived, so this only ever
+    writes the index. A rebuild that repaired a *source* from an index would
+    be inventing content from a summary of it.
+    """
+    application = _app()
+    knowledge = _knowledge(application)
+    result = rebuild_search_index(knowledge)
+    typer.echo(f"indexed {result.documents_indexed} document(s); "
+               f"index went from {result.before} to {result.after} row(s)")
+    typer.echo("sources untouched" if result.sources_untouched
+               else f"WARNING: sources changed: {result.sources_modified}")
+
+
+@maintenance_app.command("retention")
+def maintenance_retention(
+        apply: Annotated[bool, typer.Option("--apply")] = False) -> None:
+    """Remove expired operational state, keeping anything live work pins."""
+    application = _app()
+    result = application.maintenance.run_retention(apply=apply)
+    plan = result.plan
+    typer.echo(f"expired and removable: {len(plan.remove)}")
+    typer.echo(f"kept, pinned by live work: {len(plan.kept_pinned)}")
+    typer.echo(f"kept, not expirable: {len(plan.kept_protected)}")
+    if not apply:
+        typer.echo("dry run; pass --apply to remove")
+        return
+    for table, count in sorted(result.removed.items()):
+        typer.echo(f"  removed {count} from {table}")
+
+
+@maintenance_app.command("load")
+def maintenance_load(
+        sources: Annotated[int, typer.Option("--sources")] = 500,
+        jobs: Annotated[int, typer.Option("--jobs")] = 200,
+        keep: Annotated[bool, typer.Option("--keep")] = False) -> None:
+    """Measure real persistence and queue latency under synthetic load (O12).
+
+    Every sample is an actual database round trip, which is why it is slower
+    than a report constructed with the numbers already in it — and why it
+    measures anything at all.
+    """
+    application = _app()
+    report = application.maintenance.measure_load(sources=sources, jobs=jobs)
+    typer.echo(f"hardware: {report.hardware}")
+    typer.echo(f"sources: {report.source_count}; queue depth after run: "
+               f"{report.queue_depth}")
+    for name in sorted(report.samples):
+        sample = report.samples[name]
+        typer.echo(f"  {name}: n={sample.count} p50={sample.p50:.2f}ms "
+                   f"p95={sample.p95:.2f}ms max={sample.maximum:.2f}ms")
+        met = report.meets(name)
+        if met is not None:
+            typer.echo(f"    target {report.targets[name]:.0f}ms: "
+                       + ("met" if met else "NOT met"))
+    if not keep:
+        typer.echo(f"cleaned up {application.maintenance.cleanup_load_rows()} "
+                   "synthetic row(s)")
 
 
 # --------------------------------------------------------------------------- #

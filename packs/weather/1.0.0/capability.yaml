@@ -1,0 +1,37 @@
+schema_version: 1
+id: weather
+version: "1.0.0"
+title: Weather
+description: Compare suitable sources for one location and prepare advice.
+owner_role: daily_life
+policy_namespace: weather
+defaults:
+  # A pack may not ship enabled: the registry refuses it, because enabling
+  # is the owner's decision and not the pack author's.
+  enabled: false
+  budget_class: interactive
+dependencies:
+  required:
+    - weather.prepare
+  optional: []
+operations:
+  weather.local:
+    description: Present conditions and near-term advice for one location.
+    intents:
+      - "what is the weather"
+      - "will it rain before I leave"
+    # Adapter mode: the pack names a trusted port the application already
+    # supplies. It does not ship its own network code, so enabling the pack
+    # grants no capability the host had not already decided to offer.
+    mode: adapter
+    handler: weather.prepare
+    input_schema: schemas/input.schema.json
+    output_schema: schemas/output.schema.json
+    tools:
+      - weather.prepare
+    effects: []
+    destinations: []
+    timeout_seconds: 30
+    retry_policy: none
+    idempotency: root_effect_slot
+    result_artifact_kind: weather_brief

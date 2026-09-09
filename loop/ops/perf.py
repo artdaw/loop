@@ -88,7 +88,9 @@ def describe_hardware() -> str:
             f"Python {platform.python_version()}")
 
 
-def measure(report: LoadReport, name: str, operations: Iterable[Callable[[], None]],
+def measure(report: LoadReport, name: str,
+            # The return value is discarded; only the timing matters.
+            operations: Iterable[Callable[[], object]],
             *, clock: Callable[[], float] = time.perf_counter) -> LatencySample:
     """Time each operation individually, so the tail is visible.
 

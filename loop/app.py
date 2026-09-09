@@ -35,6 +35,7 @@ should.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -44,9 +45,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from loop.agents.coordinator import Coordinator
 from loop.agents.roles import RoleRegistry
 from loop.ai.model_gateway import ModelGateway
+from loop.capabilities.calendar.service import CalendarService
 from loop.capabilities.objects import CapabilityObjectStore
 from loop.capabilities.registry import CapabilityRegistry
 from loop.capabilities.runners import ArtifactStore, CapabilityInvoker
+from loop.capabilities.travel.ports import travel_handlers
 from loop.capabilities.travel.trip import TripStore
 from loop.capabilities.weather.ports import (
     load_locations,
@@ -84,6 +87,7 @@ from loop.runtime.trip_monitor import (
     TripCheckDispatcher,
     TripMonitorScheduler,
 )
+from loop.runtime.trip_worker import TripCheckSource, TripCheckWorker
 from loop.services.actions import CallbackActions
 from loop.services.export_map import ExportMap
 from loop.services.feedback import (
@@ -93,6 +97,7 @@ from loop.services.feedback import (
 )
 from loop.services.knowledge import KnowledgeService
 from loop.services.learning import PreferenceStore
+from loop.services.maintenance import MaintenanceService
 from loop.services.messages import MessageService, PendingClarifications
 from loop.services.observations import ObservationStore
 from loop.services.reminders import ReminderService
@@ -123,6 +128,7 @@ class Application:
     capability_objects: CapabilityObjectStore
     export_map: ExportMap
     notifications: NotificationManager
+    calendar: CalendarService
     weather: WeatherService
     vault_search: VaultSearch
     #: None when no vault is configured — the honest state, not an empty vault.
@@ -130,11 +136,13 @@ class Application:
     routine_scheduler: RoutineScheduler
     routine_worker: RoutineJobWorker
     trip_monitor: TripMonitorScheduler
+    trip_worker: TripCheckWorker
     feedback: FeedbackService
     messages: MessageService
     actions: CallbackActions
     observations: ObservationStore
     barrier: SnapshotBarrier
+    maintenance: MaintenanceService
     conditions: ConditionDispatcher
     registry: CapabilityRegistry
     artifacts: ArtifactStore
@@ -162,7 +170,9 @@ class Application:
 def build_application(settings: Settings | None = None, *,
                       clock: Clock | None = None,
                       apply_migrations: bool = True,
+                      calendar: CalendarService | None = None,
                       weather: WeatherService | None = None,
+                      trip_sources: dict[str, TripCheckSource] | None = None,
                       transports: dict[str, Transport] | None = None,
                       model_gateway: ModelGateway | None = None
                       ) -> Application:
@@ -173,7 +183,8 @@ def build_application(settings: Settings | None = None, *,
     `Application` are, by construction, using the same services — there is no
     second place a duplicate `TaskService` could be built.
 
-    `weather`, `transports` and `model_gateway` are the injected
+    `calendar`, `weather`, `trip_sources`, `transports` and `model_gateway` are
+    the injected
     collaborators: they are the only components here that would otherwise
     reach a network, so a test supplies fakes for them and everything
     downstream — ports, routines, jobs, policy, outbox, compile — stays the
@@ -215,6 +226,9 @@ def build_application(settings: Settings | None = None, *,
     # snapshot can prove nothing changed underneath it (O09/LG11). Built early
     # because the sweep and the workers all take it.
     barrier = SnapshotBarrier(sessions=sessions, clock=clock)
+    # Retention, index rebuild and load measurement against the real stores
+    # (O10-O12). The logic existed in `loop/ops/` with no caller at all.
+    maintenance = MaintenanceService(sessions=sessions, clock=clock)
     routines = RoutineService(sessions=sessions, clock=clock)
     preferences = PreferenceStore(sessions=sessions)
     trips = TripStore(sessions=sessions, clock=clock)
@@ -237,6 +251,11 @@ def build_application(settings: Settings | None = None, *,
         # Unconfigured means the warning state stays `unknown`, which is the
         # honest answer — never an all-clear from a feed nobody chose.
         warning_feeds=load_warning_feeds(vault_root, settings.loop_policy_path))
+    # Provider OAuth remains an interface concern. The application always
+    # exposes one shared calendar service, while an unconfigured install has
+    # zero providers and reports that fact instead of inventing an empty day.
+    calendar_service = calendar or CalendarService(
+        providers=[], sessions=sessions, clock=clock)
 
     # One index and one gateway per process, shared by the knowledge service
     # and the `vault.search` port — two of them would disagree about what has
@@ -249,10 +268,17 @@ def build_application(settings: Settings | None = None, *,
             model_gateway=model_gateway, clock=clock)
 
     artifacts = ArtifactStore(sessions=sessions, clock=clock)
+    # The registry learns which trusted ports exist here, so a pack depending
+    # on `weather.prepare` resolves instead of sitting in
+    # `missing_dependencies` because a constant did not mention it.
+    registry.declare_provided(set(_trusted_handlers(
+        tasks, clock, calendar_service, weather_service, knowledge,
+        triggers=triggers, outbox=outbox)))
     invoker = CapabilityInvoker(
         registry=registry, gateway=model_gateway, artifact_store=artifacts,
-        runs=runs, handlers=_trusted_handlers(tasks, clock, weather_service,
-                                              knowledge))
+        runs=runs, handlers=_trusted_handlers(
+            tasks, clock, calendar_service, weather_service, knowledge,
+            triggers=triggers, outbox=outbox))
     roles = RoleRegistry(vault_root=vault_root)
 
     coordinator = Coordinator(invoker=invoker, roles=roles, runs=runs,
@@ -304,6 +330,15 @@ def build_application(settings: Settings | None = None, *,
     # rather than becoming a subject-type table in the composition root.
     trip_monitor = TripMonitorScheduler(triggers=triggers, sessions=sessions,
                                         clock=clock)
+    # A queued `trip.check` had no consumer at all: monitoring scheduled work
+    # that nothing executed. Sources stay empty until a provider is
+    # configured, and an unconfigured check reports unavailable rather than
+    # "no change" (travel §4).
+    trip_worker = TripCheckWorker(
+        jobs=jobs, scheduler=trip_monitor, outbox=outbox,
+        notifications=notifications, clock=clock,
+        destination=settings.telegram_chat_id, sources=trip_sources)
+
     dispatchers = CompositeTriggerDispatcher([
         TaskReminderDispatcher(tasks=tasks, outbox=outbox,
                                destination_id=settings.telegram_chat_id,
@@ -332,11 +367,14 @@ def build_application(settings: Settings | None = None, *,
         jobs=jobs, outbox=outbox, intake=intake, routines=routines,
         preferences=preferences, trips=trips,
         capability_objects=capability_objects, export_map=export_map,
-        notifications=notifications, weather=weather_service,
+        notifications=notifications, calendar=calendar_service,
+        weather=weather_service,
         vault_search=vault_search, knowledge=knowledge,
         routine_scheduler=routine_scheduler, routine_worker=routine_worker,
-        trip_monitor=trip_monitor, feedback=feedback, messages=messages,
+        trip_monitor=trip_monitor, trip_worker=trip_worker,
+        feedback=feedback, messages=messages,
         actions=actions, observations=observations, barrier=barrier,
+        maintenance=maintenance,
         conditions=conditions,
         registry=registry, artifacts=artifacts,
         invoker=invoker, roles=roles, operations=operations, runs=runs,
@@ -357,8 +395,10 @@ def _vault_root(settings: Settings) -> Path | None:
 
 
 def _trusted_handlers(tasks: TaskService, clock: Clock,
+                      calendar: CalendarService,
                       weather: WeatherService,
-                      knowledge: KnowledgeService | None) -> dict:
+                      knowledge: KnowledgeService | None, *,
+                      triggers: TriggerService, outbox: NotificationOutbox) -> dict:
     """The trusted ports every shipped pack and routine may declare as a tool.
 
     These are exactly the operations a manifest's `tools:` list — or a
@@ -393,8 +433,52 @@ def _trusted_handlers(tasks: TaskService, clock: Clock,
                             owner=context.owner)
         return {"answer": f"Scheduled: {task.title}", "sources": [task.id]}
 
+    def calendar_read(args: dict, context) -> dict:
+        del context
+        if not calendar.providers:
+            raise Unavailable("No calendar provider is configured.")
+        now = clock.now()
+        try:
+            start = dt.datetime.fromisoformat(str(args.get("start"))) \
+                if args.get("start") else now
+            end = dt.datetime.fromisoformat(str(args.get("end"))) \
+                if args.get("end") else start + dt.timedelta(days=7)
+        except ValueError as exc:
+            raise Unavailable(f"Invalid calendar window: {exc}") from exc
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=dt.UTC)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=dt.UTC)
+        view = calendar.read(start=start, end=end)
+        reconciled = calendar.reconcile(view, triggers=triggers, outbox=outbox)
+        outages = calendar.outages_to_report(view)
+        return {
+            "events": [
+                {"provider": event.provider, "id": event.event_id,
+                 "title": event.title, "start": event.start.isoformat(),
+                 "end": event.end.isoformat(), "revision": event.revision}
+                for event in view.events
+            ],
+            "complete": view.complete,
+            "gaps": view.describe_gaps(),
+            "outages_to_report": outages,
+            "reconciled": {"updated": reconciled.updated,
+                           "removed": reconciled.removed,
+                           "cancelled_reminders":
+                               reconciled.cancelled_reminders},
+            "sources": [read.provider for read in view.reads if read.usable],
+        }
+
     return {
         **weather_handlers(weather, clock=clock),
+        **travel_handlers(),
+        "calendar.read": RegisteredHandler(
+            calendar_read, description="Read and reconcile configured calendars.",
+            input_schema={"type": "object", "additionalProperties": False,
+                          "properties": {
+                              "start": {"type": "string"},
+                              "end": {"type": "string"}}},
+            owner_role="daily_life"),
         "vault.search": RegisteredHandler(
             vault_search, description="Search the owner's authorised notes.",
             input_schema={"type": "object", "additionalProperties": True},

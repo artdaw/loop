@@ -36,6 +36,8 @@ export DATA_DIR="$ROOT/data"
 export OBSIDIAN_VAULT_PATH="$VAULT"
 export CAPABILITY_PATHS="[\"$REPO/packs\"]"
 export TELEGRAM_CHAT_ID=demo TELEGRAM_USER_ID=demo
+unset OLLAMA_DEFAULT_MODEL ANTHROPIC_API_KEY ANTHROPIC_MODEL
+export CLOUD_ENABLED=false
 
 pass=0
 step()  { printf '\n\033[1m== %s\033[0m\n' "$1"; }
@@ -86,13 +88,33 @@ else
   skip "vault compile" "no OLLAMA_DEFAULT_MODEL; claim extraction needs a model"
 fi
 
-step "4. Capabilities: two packs, and one route to both"
+step "4. Capabilities: scaffold, validate, test, enable, run, disable"
 out="$($LOOP capability list)"
 check "plantcare is discovered from packs/" "plantcare" "$out"
 check "bikeservice is discovered too" "bikeservice" "$out"
-$LOOP capability enable plantcare 1.0.0 >/dev/null
+check "weather uses the same registry" "weather" "$out"
+check "travel uses the same registry" "travel" "$out"
+check "the small checklist extension uses it too" "checklist" "$out"
+
+generated="$ROOT/generated/1.0.0"
+out="$($LOOP capability init demo.release "$generated")"
+check "a new inert pack is scaffolded by the installed command" \
+      "demo.release 1.0.0 scaffolded" "$out"
+out="$($LOOP capability validate "$generated")"
+check "the installed validator accepts the generated pack" \
+      "demo.release@1.0.0 valid" "$out"
+out="$($LOOP capability test "$generated")"
+check "its examples execute offline before enablement" "all cases passed" "$out"
+
+$LOOP capability enable checklist 1.0.0 >/dev/null
 out="$($LOOP status)"
-check "enabling a pack needs no new command or code" "plantcare" "$out"
+check "enabling a pack needs no new command or code" "checklist" "$out"
+# shellcheck disable=SC1010  # `do` is an argument to the quoted executable.
+out="$("$LOOP" do checklist.build '{"items":["pack release","verify result"]}')"
+check "the enabled workflow runs through the generic executor" \
+      "checklist ready" "$out"
+out="$($LOOP capability disable checklist)"
+check "the same lifecycle disables it again" "checklist@1.0.0" "$out"
 
 step "5. Routines: saving is not activating"
 cat > "$ROOT/rain.md" <<'YAML'
@@ -164,6 +186,13 @@ fi
 printf '   ok  the target is untouched by a verify-only run\n'; pass=$((pass + 1))
 out="$($LOOP restore --from "$ROOT/backup" --target "$ROOT/restored" --apply)"
 check "applying into an explicit empty target succeeds" "restored" "$out"
+
+step "9. Completion is durable and suppresses stale work"
+out="$($LOOP task complete "$task_id" 1)"
+check "completion uses the expected persisted version" "done" "$out"
+out="$($LOOP task list)"
+check "the durable task view records the completed state" \
+      "$task_id  call the repair shop  [done]" "$out"
 
 step "Not demonstrated on this machine"
 skip "weather forecast and briefing delivery" \

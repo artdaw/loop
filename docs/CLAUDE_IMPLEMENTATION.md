@@ -163,15 +163,15 @@ even if its old named test is green. Keep all 196 IDs from the acceptance append
   R0–R6 below in order, preserving completed functionality. These instructions
   supersede the historical completion/account-blocker claims below and elsewhere
   in this document. M0–M6 record delivered slices, not blanket contract completion.
-- Latest independent verification (2026-09-08): 2,046 passed / 17 skipped;
-  repository-wide Ruff and mypy passed (226 files); matrix checks passed;
-  working tree clean. Packaging/Docker were not rerun in that review.
-- Known open matrix baseline: 179 verified / 17 implemented. Even verified rows
-  require substantive review: O09/LG11 do not yet prove a consistent snapshot
-  across concurrent domain, checkpoint and vault writers.
-- Exact next step: R0, then R1. Missing provider credentials prohibit live use
-  where authority is required; they do NOT prohibit implementing adapters,
-  workers, or testing them with recorded/fake transports.
+- Latest verification (2026-09-09): 2,152 passed / 17 optional skips;
+  repository-wide Ruff and mypy passed (242 files); source and wheel builds,
+  11 non-Docker packaging checks, shellcheck, the installed-command demo,
+  matrix summary and matrix audit passed. Docker remains deliberately unrun
+  until the final R6 command.
+- Current matrix: 196 verified / 0 implemented / 0 pending, with 11 process,
+  13 interface, 23 application and 149 component evidence rows.
+- Exact next step: synchronize the R6 release record, then run the release
+  runner. Its Docker image suite is the final command and final release gate.
 
 #### Mandatory release closure sequence — R0–R6
 
@@ -190,11 +190,11 @@ resume the first incomplete slice. Never replace this document with another plan
 |---|---|---|---|
 | R0 | Reconcile current checkout and all 196 scenario requirements against production callers, assertions and missing paths. Read the complete scenario text, not truncated matrix cells. | Account for every ID with evidence level, precise test references and unmet clauses. Correct unsupported verified labels and derived totals. | **done 2026-09-09** |
 | R1 | Coordinate backup and isolated restore across domain SQLite, LangGraph checkpoints and vault, including policy and operation records (O09, LG11). | Concurrent-write and real-process recovery tests described below pass; snapshot cannot silently mix application states. | **done 2026-09-09** |
-| R2 | Finish service lifecycle and operational maintenance (D14, O05, O10–O13). | Installed entrypoint tests for shutdown/recovery, diagnostics, retention, rebuilt search and measured synthetic load pass. | pending |
-| R3 | Complete privacy propagation and pack integration (A08, EX14), rechecking execution budgets and authority across public entrypoints. | Full derivative privacy chain and real weather/travel/checklist registry execution prove required outcomes. | pending |
-| R4 | Complete calendar integration and executable scoped travel monitoring (A01, P09–P11, TR15–TR19). | Real adapter/worker implementations run with fake or recorded transports through shared application services, including restart, cancellation and failures. | pending |
-| R5 | Complete all release demonstrations and perform substantive re-audit of every acceptance row after R1–R4. | Reproducible installed-interface transcripts and outcome assertions cover every mandatory contract; no unsupported completion claim. | pending |
-| R6 | Run final install, build, Docker, static, test and recovery gates on the final candidate; synchronize release documentation. | All mandatory gates pass with zero mandatory skips; final report distinguishes implemented, configured and live-tested behavior. | pending |
+| R2 | Finish service lifecycle and operational maintenance (D14, O05, O10–O13). | Installed entrypoint tests for shutdown/recovery, diagnostics, retention, rebuilt search and measured synthetic load pass. | **done 2026-09-09** |
+| R3 | Complete privacy propagation and pack integration (A08, EX14), rechecking execution budgets and authority across public entrypoints. | Full derivative privacy chain and real weather/travel/checklist registry execution prove required outcomes. | **done 2026-09-09** |
+| R4 | Complete calendar integration and executable scoped travel monitoring (A01, P09–P11, TR15–TR19). | Real adapter/worker implementations run with fake or recorded transports through shared application services, including restart, cancellation and failures. | **done 2026-09-09** |
+| R5 | Complete all release demonstrations and perform substantive re-audit of every acceptance row after R1–R4. | Reproducible installed-interface transcripts and outcome assertions cover every mandatory contract; no unsupported completion claim. | **done 2026-09-09** |
+| R6 | Run final install, build, Docker, static, test and recovery gates on the final candidate; synchronize release documentation. | All mandatory gates pass with zero mandatory skips; final report distinguishes implemented, configured and live-tested behavior. | **done 2026-09-09** |
 
 **R0 — audit discipline.** Existing `audit_acceptance.py` infers evidence level
 from file-wide tokens such as `subprocess`; that cannot prove an individual
@@ -354,6 +354,63 @@ comparisons. A report initialized with `source_count=500` is not a load test.
 Fix release-test date dependencies rather than excluding a failing legacy test
 as outside scope. Preserve compatible legacy interfaces.
 
+#### R2 result — the orphaned helpers now have callers
+
+R0's finding was that `check_python`, `rebuild_index`, `plan_retention`,
+`LoadReport` and `ServiceHealth` were imported by nothing outside their own
+tests. Those tests proved the helpers; they could not prove the system, because
+the system never called them. `loop/services/maintenance.py` and the wiring
+below are the other half.
+
+**O13 — the heartbeat is persisted from the sweep**, not from process start,
+because "the process is alive" and "scheduled work is being done" are different
+claims and only the second matters. A laptop that slept through the night has a
+healthy process and a missed 07:00 routine. `loop-next status` now prints what
+the last sweep recorded, and names the catch-up limit rather than implying
+continuous availability.
+
+**O05 — the version guard is the first executable statement** in
+`loop/interfaces/cli.py`, above every third-party import, touching stdlib only.
+A test asserts that nothing heavier appears before it, because the guard's
+whole value is arriving *before* the ImportError it exists to replace. Ruff
+flags the branch as dead code since the project targets 3.12; that is exactly
+backwards, and the suppression says so.
+
+**O10 — `maintenance rebuild-index`** rebuilds the real FTS index from the
+vault. The vault is the authority and the index is derived, so the rebuild
+only ever writes the index. A test replaces the reindex with one that writes
+back and asserts the report *detects* it — without that, "sources untouched"
+would be an assertion about nothing, which a mutation confirmed.
+
+**O11 — `maintenance retention`** plans against real rows and removes only with
+`--apply`. Expiry is a hint about age; a reference is a fact about use, so
+anything a queued job still depends on is kept. Ordinary vault evidence is
+asserted untouched after advancing the clock a year. The column names are
+verified against the live schema rather than assumed — the first version
+guessed `spend_reservations.expires_at`, which does not exist.
+
+**O12 — `maintenance load`** persists and claims real rows and times each
+operation individually, reporting hardware, queue depth, p50, p95 and max. A
+report constructed with `source_count=500` and no writes measures nothing; a
+test asserts the rows actually landed. It cleans up after itself, because a
+benchmark is not user data.
+
+**D14 — SIGTERM then a forced kill, in real processes.** A clean stop hands the
+lease back so the next process starts immediately; a forced kill cannot, so the
+lease is what recovers it. Both halves are asserted against a daemon spawned
+with `subprocess.Popen`, and a fresh process then opens the same database and
+finds the heartbeat the killed one left.
+
+**The legacy date dependency is fixed rather than excluded.**
+`WeeklyReview._week_start` called `date.today()` inline, so this module's tests
+failed whenever the suite crossed a Monday — which looked like flakiness and
+was not. It also let one review straddle midnight and compute "this week"
+twice. `today` is now injected, and two tests pin the boundary.
+
+Matrix: **185 verified / 11 implemented**.
+
+**Exact next step:** R3.
+
 **R3 — privacy and extensibility.** Trace private raw capture through compiled
 wiki, retrieval, task, child/repair and final summary; assert persisted labels,
 destination enforcement and zero cloud calls on local failure. Exercise the
@@ -362,6 +419,55 @@ actual packs alongside a small checklist extension; prove discovery, schema
 validation, enable/run/disable, shared executor, artifacts and version pinning
 without coordinator/channel/domain-specific branches. Schema objects named
 after packs alone do not satisfy EX14.
+
+#### R3 result — the privacy chain held; the packs did not exist
+
+**A08 passed on the first run, which is itself the finding.** Every hop already
+carried the label: the capture is indexed with `local_only`, the SQL filter
+excludes private rows before they are loaded rather than after, the answer
+carries its source chain back to the private note, a derived task keeps the
+label, and `PrivacyLabel.merge` cannot widen. With cloud fully configured — key,
+model and positive budget — a local-model failure produced **zero cloud calls**.
+A08's `implemented` label was pessimistic; what was missing was a test at this
+level, not the behaviour. Mutations confirm the tests would catch a break.
+
+**EX14 needed three packs that did not exist.** `packs/weather`, `packs/travel`
+and `packs/checklist` now load through the same registry, lifecycle and
+executor as `plantcare` and `bikeservice`. Weather and travel are *adapter*
+mode: they name a trusted port the host already supplies, so enabling a pack
+grants no capability the application had not already decided to offer, and no
+pack ships its own network code. `loop/capabilities/travel/ports.py` adds
+`travel.brief`, deliberately the safe half of travel — research and monitoring
+cost money and need provider authority, so a pack cannot reach them.
+
+The checklist pack exists to prove the other half of EX14: a simple extension
+must not carry a domain pack's boilerplate. It has no instructions file, no
+tools, no effects and a one-property schema, and a test asserts it stays
+smaller than the domain packs. A design satisfying only the "same machinery"
+half turns every checklist into a weather pack.
+
+**Three real defects found while building them:**
+
+1. **A pack may not ship enabled** — the registry refused `defaults.enabled:
+   true`, correctly: enabling is the owner's decision, not the pack author's.
+2. **The registry's known-ports list was a constant that drifts.**
+   `BUILTIN_OPERATIONS` did not mention `weather.prepare`, so any pack
+   depending on it sat in `missing_dependencies` for no visible reason. The
+   registry now learns the *actual* trusted ports from the handler registry
+   via `declare_provided`, so adding a port cannot silently strand a pack.
+3. **`destination` is a reserved argument.** It names a delivery target, and
+   `ToolWrapper` strips it so untrusted content cannot redirect output. The
+   travel schema had reused the word for a place, and the field was being
+   silently dropped. Renamed to `place`, with the reason recorded where the
+   schema is defined.
+
+A pack also cannot require a new role: `owner_role: travel` was rejected, and
+`daily_life` is correct, because LG02 forbids `ROLE_DEFINITIONS` growing a row
+per pack.
+
+Matrix: **187 verified / 9 implemented**.
+
+**Exact next step:** R4.
 
 **R4 — providers and monitoring.** Implement the missing `trip.check` worker
 and connect it to the shipped daemon/one-shot dispatch. A queued check must
@@ -390,6 +496,67 @@ execution. Assert durable results and citations, not just exit codes or call
 counts. Kill an actual process in crash scenarios. Mark optional configuration
 absence separately only where the contract allows it and the failure path is
 implemented and tested. All remaining mandatory clauses must close.
+
+#### R4 result — provider failures are explicit and monitor results survive restart
+
+Google and Outlook calendar adapters normalize recurrence-expanded provider
+responses through injected transports. Missing credentials make zero requests;
+partial reads preserve successful events, stale reminders are cancelled, and
+outage deduplication is durable. `CalendarService` is now part of `Application`
+and `calendar.read` is a trusted operation, so the implementation is reachable
+through the same composition root as every interface.
+
+`TripCheckWorker` is wired into one-shot and daemon dispatch, rechecks active
+scope, selected revision/option and its fencing lease before provider reads,
+compares changes without model calls, and deduplicates material notices. Review
+caught that its first result object existed only in memory. Migration
+`0005_calendar_job_results` adds fenced `jobs.result_json` and calendar state;
+job completion and its structured outcome now commit on the same row.
+
+Focused calendar, coordinator, trip-worker, job and migration evidence: 105
+tests passed. Matrix after the complete re-audit: **196 verified / 0 implemented
+/ 0 pending**.
+
+#### R5 result — installed lifecycle demo and complete acceptance audit
+
+The installed CLI now exposes `capability init`, `validate` and offline `test`,
+in addition to list/enable/disable and generic `do`. The expanded demo exercises
+scaffold → validate → conformance-test → enable → run → disable, task completion,
+knowledge capture/retrieval, routines, learning, sweep, and coordinated
+backup/restore with observable state assertions.
+
+Running the demo found two disconnected paths. A scripted timeout was flattened
+to `privacy_blocked`; conformance now classifies the preserved typed cause. The
+checklist pack validated but could not execute; the workflow runner now supplies
+the generic, side-effect-free `core.project` intrinsic so a tiny pack needs
+neither a model nor a domain tool.
+
+Non-Docker release evidence on the final candidate: Ruff passed; mypy passed
+across 242 files; 2,152 tests passed with 17 optional provider/packaging skips;
+196/196 acceptance rows passed summary and evidence-level audit; source and
+wheel builds passed; 11 non-Docker packaging checks passed; shellcheck, the
+installed-command demo, and `git diff --check` passed. Docker has not been run
+yet by design.
+
+**Exact next step:** none for M7 implementation. Review the uncommitted diff;
+publishing, live provider configuration and committing require separate owner
+instructions.
+
+#### R6 result — release gates passed, with Docker last
+
+The release runner passed lint, types, the hermetic suite, the 196-row summary
+and evidence audit, source/wheel build, 11 non-Docker packaging checks, 45
+restart/recovery checks, the 40-check installed-command demo and diff integrity.
+Docker Desktop was initially unavailable; after startup, its first image build
+failed resolving `ghcr.io/astral-sh/uv:0.12.9` with BuildKit `lease does not
+exist`. The unchanged candidate was retried and all six O03 checks passed:
+image build, non-root user, packaged Loop modules, legacy core inclusion, no
+baked `.env`, and writable `/app/data`. No verification ran after Docker.
+
+M7 is finalized for release review. Calendar and travel provider logic is
+implemented and fixture-tested but not configured or live-account-tested on
+this machine. No commit, publication, deployment, booking, purchase, or live
+message was performed.
 
 **R6 — final gates.** Run the commands below against the final candidate.
 **Docker is the very last release check**, after implementation, documentation,

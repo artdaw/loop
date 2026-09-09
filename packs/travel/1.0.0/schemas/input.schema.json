@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "place": {"type": "string"},
+    "origin": {"type": "string"},
+    "start_date": {"type": "string"},
+    "end_date": {"type": "string"},
+    "adults": {"type": "integer", "minimum": 1},
+    "interests": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

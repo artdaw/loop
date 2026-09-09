@@ -322,10 +322,14 @@ class CapabilityInvoker:
                          ) -> dict[str, Any]:
                 resolved = _resolve_values(spec["arguments"], state["arguments"],
                                            state.get("results", {}))
-                result = self.invoke(spec["operation"], resolved, context=context,
-                                     persist=False)
-                return {"results": {spec["id"]: result.output},
-                        "evidence": result.evidence}
+                # Pure projection is the workflow intrinsic for shaping local
+                # input. It needs neither a model nor a declared host tool.
+                if spec["operation"] == "core.project":
+                    return {"results": {spec["id"]: resolved}, "evidence": []}
+                invoked = self.invoke(spec["operation"], resolved,
+                                      context=context, persist=False)
+                return {"results": {spec["id"]: invoked.output},
+                        "evidence": invoked.evidence}
 
             graph.add_node(step_id, run_step)
 
@@ -490,7 +494,7 @@ def _validate_workflow(raw: Any, *, allowed: set[str]) -> list[dict[str, Any]]:
         operation = str(item.get("operation") or "")
         if not step_id or step_id in ids:
             raise ValidationFailed(f"Invalid or duplicate workflow step {step_id!r}.")
-        if operation not in allowed:
+        if operation not in allowed and operation != "core.project":
             raise ValidationFailed(
                 f"Workflow step {step_id!r} invokes undeclared tool {operation!r}.")
         ids.add(step_id)

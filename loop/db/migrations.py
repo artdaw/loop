@@ -304,6 +304,32 @@ def _r0004_trips(conn: Connection) -> None:
         )"""))
 
 
+def _r0005_calendar_and_job_results(conn: Connection) -> None:
+    """Persist calendar reconciliation state and fenced worker outcomes."""
+    inspector = inspect(conn)
+    job_columns = {c["name"] for c in inspector.get_columns("jobs")}
+    if "result_json" not in job_columns:
+        conn.execute(text("ALTER TABLE jobs ADD COLUMN result_json TEXT"))
+
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS calendar_occurrences (
+            provider TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            revision TEXT NOT NULL,
+            starts_at BIGINT NOT NULL,
+            title TEXT NOT NULL,
+            cancelled INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (provider, event_id)
+        )"""))
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS calendar_outages (
+            provider TEXT PRIMARY KEY,
+            first_seen_at BIGINT NOT NULL,
+            last_notified_at BIGINT NOT NULL,
+            detail TEXT NOT NULL
+        )"""))
+
+
 #: Ordered revisions. Append only; never edit a shipped entry.
 REVISIONS: tuple[Revision, ...] = (
     Revision("0000_rename_legacy", "move colliding Phase 4 tables aside",
@@ -314,6 +340,8 @@ REVISIONS: tuple[Revision, ...] = (
     Revision("0003_extension_state", "persist routines, preferences, capability "
              "objects, spend and notification state", _r0003_extension_state),
     Revision("0004_trips", "trip authority pointers", _r0004_trips),
+    Revision("0005_calendar_job_results", "calendar reconciliation state and "
+             "durable job results", _r0005_calendar_and_job_results),
 )
 
 HEAD = REVISIONS[-1].id

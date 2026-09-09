@@ -1,0 +1,32 @@
+schema_version: 1
+id: checklist
+version: "1.0.0"
+title: Checklist
+# The point of this pack is its size. EX14 requires that a simple extension
+# not be forced to carry the boilerplate a large domain pack needs: no
+# instructions file, no tools, no effects, one tiny schema each way.
+description: Turn a short list into a saved checklist.
+owner_role: daily_life
+policy_namespace: checklist
+defaults:
+  enabled: false
+  budget_class: interactive
+dependencies:
+  required: []
+  optional: []
+operations:
+  checklist.build:
+    description: Build a checklist from items the owner supplied.
+    intents:
+      - "make a checklist"
+    mode: workflow
+    workflow: workflows/build.yaml
+    input_schema: schemas/input.schema.json
+    output_schema: schemas/output.schema.json
+    tools: []
+    effects: []
+    destinations: []
+    timeout_seconds: 10
+    retry_policy: none
+    idempotency: root_effect_slot
+    result_artifact_kind: checklist

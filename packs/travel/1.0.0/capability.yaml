@@ -1,0 +1,37 @@
+schema_version: 1
+id: travel
+version: "1.0.0"
+title: Travel
+description: Validate a trip brief and name what is still missing.
+# `daily_life`, not a new `travel` role: LG02 forbids a pack requiring an
+# entry in ROLE_DEFINITIONS, and the role table governs shared trusted
+# ports rather than growing one row per pack.
+owner_role: daily_life
+policy_namespace: travel
+defaults:
+  enabled: false
+  budget_class: interactive
+dependencies:
+  required:
+    - travel.brief
+  optional: []
+operations:
+  travel.plan_brief:
+    description: Check a trip brief and report blocking gaps and questions.
+    intents:
+      - "plan a trip"
+      - "am I missing anything for this trip"
+    # Adapter mode, like weather. Research and monitoring cost money and need
+    # provider authority, so enabling this pack cannot reach them.
+    mode: adapter
+    handler: travel.brief
+    input_schema: schemas/input.schema.json
+    output_schema: schemas/output.schema.json
+    tools:
+      - travel.brief
+    effects: []
+    destinations: []
+    timeout_seconds: 20
+    retry_policy: none
+    idempotency: root_effect_slot
+    result_artifact_kind: trip_brief_check

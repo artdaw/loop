@@ -71,11 +71,23 @@ def test_every_interface_gets_the_same_task_service_instance(tmp_path):
 # --------------------------------------------------------------------------- #
 # Real shipped packs are discovered and manageable
 # --------------------------------------------------------------------------- #
-def test_the_two_shipped_packs_are_discovered_from_the_real_repo_path(tmp_path):
-    """`packs/` is a real directory in this checkout, not a test fixture."""
+def test_the_shipped_packs_are_discovered_from_the_real_repo_path(tmp_path):
+    """`packs/` is a real directory in this checkout, not a test fixture.
+
+    Five packs now: the two original examples, plus weather, travel and
+    checklist, which EX14 requires to load through this same registry rather
+    than a private path of their own.
+    """
     app = build_application(_settings(tmp_path, capability_paths='["packs"]'))
     ids = {e.manifest.id for e in app.registry.entries()}
-    assert ids == {"plantcare", "bikeservice"}
+    assert ids == {"plantcare", "bikeservice", "weather", "travel", "checklist"}
+
+
+def test_no_shipped_pack_arrives_enabled(tmp_path):
+    """Enabling is the owner's decision; the registry refuses otherwise."""
+    app = build_application(_settings(tmp_path, capability_paths='["packs"]'))
+
+    assert all(not entry.enabled for entry in app.registry.entries())
 
 
 def test_enabling_a_shipped_pack_makes_its_operation_available(tmp_path):

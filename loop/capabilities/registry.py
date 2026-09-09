@@ -390,8 +390,15 @@ class CapabilityRegistry:
 
     def __init__(self, *, roots: list[Path] | None = None,
                  max_depth: int = 2,
-                 sessions: sessionmaker[Session] | None = None) -> None:
+                 sessions: sessionmaker[Session] | None = None,
+                 provided: set[str] | None = None) -> None:
         self._roots = [Path(r) for r in (roots or [])]
+        #: Trusted ports this application actually supplies. Taken from the
+        #: real handler registry rather than trusted to `BUILTIN_OPERATIONS`,
+        #: which is a constant and therefore drifts: a port added to
+        #: `_trusted_handlers` would otherwise leave every pack depending on
+        #: it stuck in `missing_dependencies` for no visible reason.
+        self._provided = set(provided or ())
         self._max_depth = max_depth
         self._entries: dict[str, RegistryEntry] = {}     # pack_key -> entry
         self._operation_owner: dict[str, str] = {}       # operation -> pack id
@@ -567,9 +574,16 @@ class CapabilityRegistry:
             entry.availability = Availability.READY
         return entry.availability
 
+    def declare_provided(self, names: set[str]) -> None:
+        """Tell the registry which trusted ports exist in this process."""
+        self._provided = set(names)
+        for pack_key in list(self._entries):
+            self.resolve_availability(pack_key)
+
     def missing_dependencies(self, pack_key: str) -> list[str]:
         entry = self._entries[pack_key]
-        known = set(self._operation_owner) | set(BUILTIN_OPERATIONS)
+        known = (set(self._operation_owner) | set(BUILTIN_OPERATIONS)
+                 | self._provided)
         return [d for d in entry.manifest.required_dependencies if d not in known]
 
     def dependency_cycles(self) -> list[list[str]]:

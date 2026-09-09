@@ -32,8 +32,12 @@ step "acceptance matrix audit"
 # falsely marked complete" a gate rather than a claim.
 "$PY" scripts/audit_acceptance.py --check
 
-step "packaging, wheel and image checks"
-LOOP_PACKAGING_TESTS=1 "$PY" -m pytest tests/vnext/test_packaging.py -q --no-header
+step "source and wheel build"
+uv build
+
+step "packaging and installed-wheel checks (Docker excluded)"
+LOOP_PACKAGING_TESTS=1 "$PY" -m pytest tests/vnext/test_packaging.py \
+  -k 'not o03' -q --no-header
 
 step "restart durability"
 "$PY" -m pytest tests/vnext/test_run_durability.py \
@@ -45,4 +49,18 @@ step "reproducible demo through the installed commands"
 # document cannot do.
 bash scripts/demo.sh
 
-printf '\nAll acceptance checks passed.\n'
+step "working-tree integrity"
+git diff --check
+
+# O03 is intentionally last. Nothing after this line is a release gate: an
+# unavailable daemon must fail the release rather than turn six skipped image
+# checks into a green result.
+step "Docker image checks (final release gate)"
+if ! docker info >/dev/null 2>&1; then
+  printf 'Docker daemon is unavailable; release is not verified.\n' >&2
+  exit 1
+fi
+LOOP_PACKAGING_TESTS=1 "$PY" -m pytest tests/vnext/test_packaging.py \
+  -k o03 -q --no-header
+
+printf '\nAll acceptance checks, including Docker, passed.\n'

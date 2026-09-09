@@ -1,0 +1,7 @@
+schema_version: 1
+steps:
+  - id: collect
+    operation: core.project
+    arguments:
+      answer: "checklist ready"
+      sources: []

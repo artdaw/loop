@@ -19,6 +19,7 @@ work request.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -69,10 +70,16 @@ class WeeklyReview:
 
     def __init__(self, settings: Settings | None = None,
                  memory: Any | None = None,
-                 router: Any | None = None) -> None:
+                 router: Any | None = None,
+                 today: Callable[[], date] | None = None) -> None:
         self.settings = settings or get_settings()
         self._memory = memory
         self._router = router
+        #: Injected so a review is evaluated against one instant. Calling
+        #: `date.today()` at each use also lets a single review straddle
+        #: midnight — and made this module's tests fail whenever the suite ran
+        #: across a week boundary, which looked like flakiness and was not.
+        self._today = today or date.today
 
     # ------------------------------------------------------------------ #
     # Collaborators
@@ -122,10 +129,9 @@ class WeeklyReview:
             top_projects=counts.get("top_projects", []),
         )
 
-    @staticmethod
-    def _week_start(*, weeks_ago: int = 0) -> date:
+    def _week_start(self, *, weeks_ago: int = 0) -> date:
         """The Monday of the current week, shifted back ``weeks_ago`` weeks."""
-        today = date.today()
+        today = self._today()
         monday = today - timedelta(days=today.weekday())
         return monday - timedelta(days=7 * weeks_ago)
 

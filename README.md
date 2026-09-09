@@ -65,7 +65,7 @@ loop-next status          # works with nothing configured at all
 | `loop-next vault capture/compile/ask/reindex` | Exact capture → sourced wiki page → cited answer |
 | `loop-next routine add/list/activate/pause` | Recurring routines; saving is not activating |
 | `loop-next learning review/confirm/forget/snooze` | What Loop has inferred, and what it proposes — never applied on its own |
-| `loop-next capability list/enable/disable` | Capability packs, discovered from `packs/` |
+| `loop-next capability init/validate/test/list/enable/disable` | Scaffold, test, and manage capability packs |
 | `loop-next do <operation> <json>` | Invoke any enabled capability; adding a pack needs no new command |
 | `loop-next run once [--sweep-only]` | Sweep, run queued work, deliver |
 | `loop-next run daemon` | The durable scheduler and workers until SIGTERM |
@@ -423,7 +423,7 @@ with the action, level, and outcome — never the content.
 
 ```bash
 uv sync                     # or: uv venv --python 3.12 && uv pip install -e ".[dev]"
-pytest          # 2,046 tests, hermetic: no network, model, keys, or .env
+pytest          # 2,152 passing tests, hermetic: no network, model, keys, or .env
 ruff check .
 mypy .
 ```
@@ -448,8 +448,8 @@ row's required result demands? A scenario needing a restart, a delivered
 message or a shipped command cannot be `verified` by a unit test. Both answers
 come from pytest and the test files themselves, never from the label.
 
-Docker checks skip when the daemon is not running, and they are reported as
-skipped rather than counted as passing:
+Docker is the final mandatory release check. The release script fails when the
+daemon is unavailable; ordinary hermetic test runs still skip Docker-only tests:
 
 ```bash
 open -a Docker && LOOP_PACKAGING_TESTS=1 pytest tests/vnext/test_packaging.py -k o03

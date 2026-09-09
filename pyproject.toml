@@ -88,6 +88,9 @@ exclude = ["tests*", "docs*", "scripts*", "data*"]
 # fails at the first page request.
 "web" = ["templates/*.html"]
 "config" = [".env.example"]
+# `capability init` copies these; a wheel without them can list and run packs
+# but cannot start a new one.
+"loop.capabilities" = ["template/*", "template/*/*"]
 
 [tool.ruff]
 line-length = 100
@@ -113,6 +116,12 @@ ignore = ["UP042"]
 testpaths = ["tests"]
 addopts = "-q"
 asyncio_mode = "auto"
+markers = [
+    # Real subprocesses and measured load. Kept in the default run because a
+    # release gate that skips them proves nothing about a release, but marked
+    # so a tight edit loop can `-m "not slow"`.
+    "slow: spawns real processes or measures load",
+]
 
 [tool.mypy]
 python_version = "3.12"

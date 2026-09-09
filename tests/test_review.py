@@ -173,3 +173,39 @@ def test_compose_accepts_precomputed_stats(settings, memory_store):
 
     assert "7" in text
     assert "2026-08-31" in text
+
+
+# --------------------------------------------------------------------------- #
+# The week window is injected, not read from the wall clock (R2)
+# --------------------------------------------------------------------------- #
+def test_the_week_window_comes_from_the_injected_date(settings, memory_store):
+    """This module's tests used to fail whenever the suite crossed a Monday.
+
+    That looked like flakiness and was not: `_week_start` called
+    `date.today()` directly, so the window moved under the fixture data. It
+    also let one review straddle midnight, computing "this week" twice and
+    getting two answers.
+    """
+    import datetime as dt
+
+    from specialists.review import WeeklyReview
+
+    wednesday = dt.date(2026, 9, 9)
+    review = WeeklyReview(settings=settings, memory=memory_store,
+                          today=lambda: wednesday)
+
+    assert review._week_start() == dt.date(2026, 9, 7)          # the Monday
+    assert review._week_start(weeks_ago=1) == dt.date(2026, 8, 31)
+
+
+def test_a_review_taken_on_a_monday_uses_that_monday(settings, memory_store):
+    """The boundary the original bug landed on."""
+    import datetime as dt
+
+    from specialists.review import WeeklyReview
+
+    monday = dt.date(2026, 9, 7)
+    review = WeeklyReview(settings=settings, memory=memory_store,
+                          today=lambda: monday)
+
+    assert review._week_start() == monday

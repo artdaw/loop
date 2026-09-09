@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "answer": {"type": "string"},
+    "can_plan": {"type": "boolean"},
+    "can_claim_feasibility": {"type": "boolean"},
+    "blocking": {"type": "array", "items": {"type": "string"}},
+    "questions": {"type": "array", "items": {"type": "string"}},
+    "external_payload": {"type": "object"},
+    "sources": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["answer", "can_plan", "sources"],
+  "additionalProperties": true
+}

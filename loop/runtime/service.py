@@ -185,10 +185,55 @@ class LoopService:
             report.details.append("not leader; skipping sweep")
             return report
 
+        self.record_heartbeat()
         report.reclaimed = self.jobs.reclaim_expired()
         self._fire_due_triggers(report)
         self._dispatch_outbox(report)
         return report
+
+    def record_heartbeat(self) -> None:
+        """Persist that a sweep actually ran (O13).
+
+        Written from the sweep rather than from process start, because "the
+        process is alive" and "scheduled work is being done" are different
+        claims and only the second one matters. A laptop that slept through
+        the night has a live process and a stale heartbeat.
+        """
+        now = to_micros(self._clock.now())
+        with self._sessions() as session:
+            session.execute(text(
+                "CREATE TABLE IF NOT EXISTS service_heartbeat ("
+                " id INTEGER PRIMARY KEY CHECK (id = 1),"
+                " last_beat_at INTEGER NOT NULL,"
+                " worker_id TEXT NOT NULL)"))
+            session.execute(text(
+                "INSERT INTO service_heartbeat (id, last_beat_at, worker_id)"
+                " VALUES (1, :now, :worker)"
+                " ON CONFLICT(id) DO UPDATE SET last_beat_at = excluded.last_beat_at,"
+                " worker_id = excluded.worker_id"),
+                {"now": now, "worker": self.worker_id})
+            session.commit()
+
+    def last_heartbeat(self) -> int | None:
+        """When a sweep last ran, in epoch seconds, or None if never."""
+        with self._sessions() as session:
+            session.execute(text(
+                "CREATE TABLE IF NOT EXISTS service_heartbeat ("
+                " id INTEGER PRIMARY KEY CHECK (id = 1),"
+                " last_beat_at INTEGER NOT NULL,"
+                " worker_id TEXT NOT NULL)"))
+            session.commit()
+            row = session.execute(text(
+                "SELECT last_beat_at FROM service_heartbeat WHERE id = 1"
+            )).first()
+        return int(row[0]) // 1_000_000 if row else None
+
+    def health(self) -> Any:
+        """What `status` may honestly say about the background service."""
+        from loop.ops.doctor import ServiceHealth
+
+        return ServiceHealth(last_heartbeat_at=self.last_heartbeat(),
+                             now=int(self._clock.now().timestamp()))
 
     def _fire_due_triggers(self, report: TickReport) -> None:
         for trigger in self.triggers.due_triggers(limit=MAX_ITEMS_PER_SWEEP):
